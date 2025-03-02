@@ -43,6 +43,8 @@ import { initPasswordBoxes } from "./modules/ui/password-box.ts";
 import { initTheme } from "./modules/ui/theme.ts";
 import { initWebsocket } from "./modules/ui/websocket.ts";
 
+var i = eval("2 + 2");
+
 initTheme();
 initWebsocket();
 initRemote();
