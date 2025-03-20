@@ -281,7 +281,7 @@ async function registerModem(id: number) {
 		};
 	}
 
-	let partialImei = modemInfo["modem.generic.equipment-identifier"];
+	const partialImei = modemInfo["modem.generic.equipment-identifier"];
 	//if (partialImei) {
 		//partialImei = partialImei.substring(partialImei.length - 5);
 	//}
