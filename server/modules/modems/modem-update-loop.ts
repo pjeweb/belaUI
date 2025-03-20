@@ -281,10 +281,10 @@ async function registerModem(id: number) {
 		};
 	}
 
-	let partialImei = modemInfo["modem.generic.equipment-identifier"];
-	if (partialImei) {
-		partialImei = partialImei.substring(partialImei.length - 5);
-	}
+	const partialImei = modemInfo["modem.generic.equipment-identifier"];
+	//if (partialImei) {
+		//partialImei = partialImei.substring(partialImei.length - 5);
+	//}
 	const hwName = `${modemInfo["modem.generic.model"]} - ${partialImei}`;
 
 	let simNetwork = "<NO SIM>";
