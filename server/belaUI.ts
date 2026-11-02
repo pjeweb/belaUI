@@ -23,6 +23,7 @@ import { loadConfig } from "./modules/config.ts";
 import { initRTMPIngestStats } from "./modules/ingest/rtmp.ts";
 import { initSRTIngest } from "./modules/ingest/srt.ts";
 import { updateModems } from "./modules/modems/modem-update-loop.ts";
+import { initBcrpt } from "./modules/network/bcrpt.ts";
 import { UPDATE_GW_INT, updateGwWrapper } from "./modules/network/gateways.ts";
 import { initMoblinkRelays } from "./modules/network/moblink-relay.ts";
 import { initNetworkInterfaceMonitoring } from "./modules/network/network-interfaces.ts";
@@ -33,6 +34,7 @@ import { checkCamlinkUsb2 } from "./modules/streaming/camlink.ts";
 import { initPipelines } from "./modules/streaming/pipelines.ts";
 import {
 	belacoderExec,
+	initAutostart,
 	srtlaSendExec,
 } from "./modules/streaming/streamloop.ts";
 import { initRevisions } from "./modules/system/revisions.ts";
@@ -80,8 +82,6 @@ initMoblinkRelays();
 // check for Cam Links on USB2 at startup
 checkCamlinkUsb2();
 
-updateAudioDevices();
-
 /*
   We use an UDEV rule to send a SIGUSR2 when:
    * an Elgato USB device is plugged in or out
@@ -99,3 +99,9 @@ killall(["srtla_send"]);
 killall(["moblink-rust-relay"]);
 
 initHttpServer();
+initBcrpt();
+void updateAudioDevices()
+	.then(initAutostart)
+	.catch((error) => {
+		logger.error("Failed to initialize audio/autostart", error);
+	});

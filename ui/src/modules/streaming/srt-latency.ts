@@ -15,6 +15,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+import { initSliderLock, resetSliderAutolock } from "../ui/local-settings.ts";
 function showSrtLatency(value: number) {
 	const element = document.getElementById(
 		"srtLatencyValue",
@@ -37,8 +38,10 @@ export function initSrtLatencySlider(defaultLatency: number) {
 		step: 100,
 		value: defaultLatency,
 		slide: (_, ui) => {
+			resetSliderAutolock($("#srtLatencySlider"));
 			showSrtLatency(ui.value ?? defaultLatency);
 		},
 	});
+	initSliderLock($("#srtLatencySlider"));
 	showSrtLatency(defaultLatency);
 }

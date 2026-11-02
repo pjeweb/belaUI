@@ -7,18 +7,23 @@
 		"@types/bun": "^1.2.4",
 		"globals": "^15.15.0",
 		"npm-run-all2": "^7.0.2",
-		"typescript": "^5.8.2"
+		"typescript": "^5.8.2",
+		"@biomejs/biome": "1.9.4",
+		"linkedom": "0.18.12"
 	},
 	"scripts": {
-		"check": "bun run --bun --filter '*' check && run-p check:*",
-		"check:biome": "bun x --bun @biomejs/biome check",
+		"check": "bun run check:types && bun run test && bun run check:biome",
+		"check:biome": "biome check .",
 		"dev": "bun run --bun --filter '*' dev",
 		"fix": "bun run --bun --filter '*' fix",
 		"lint": "bun run --bun --filter '*' lint",
 		"format": "bun run --bun --filter '*' format",
-		"build": "bun run --bun --filter '*' build && run-p build:*",
+		"build": "bun run --cwd server build && bun run --cwd ui build && bun run build:copy-ui && bun run build:copy-server",
 		"build:copy-ui": "mkdir -p ./dist/public && rm -rf ./dist/public/* && cp -r ./ui/dist/* ./dist/public/",
-		"build:copy-server": "mkdir -p ./dist && cp ./server/belaUI ./dist/"
+		"build:copy-server": "mkdir -p ./dist && cp ./server/belaUI ./dist/",
+		"check:types": "bun run --cwd server check && bun run --cwd ui check",
+		"test": "bun test server/tests ui/tests"
 	},
-	"trustedDependencies": ["@biomejs/biome", "esbuild"]
+	"trustedDependencies": ["@biomejs/biome", "esbuild"],
+	"packageManager": "bun@1.2.3"
 }

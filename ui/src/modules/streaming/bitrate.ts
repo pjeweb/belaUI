@@ -15,6 +15,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+import { initSliderLock, resetSliderAutolock } from "../ui/local-settings.ts";
 import { ws } from "../ui/websocket.ts";
 import { getIsStreaming } from "./streaming.ts";
 
@@ -51,10 +52,12 @@ export function initBitrateSlider(bitrateDefault: number) {
 		step: 250,
 		value: bitrateDefault,
 		slide: (_, ui) => {
+			resetSliderAutolock($("#bitrateSlider"));
 			const value = ui.value ?? bitrateDefault;
 			showBitrate(value);
 			setBitrate(value);
 		},
 	});
+	initSliderLock($("#bitrateSlider"));
 	showBitrate(bitrateDefault);
 }

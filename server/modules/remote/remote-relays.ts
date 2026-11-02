@@ -16,35 +16,23 @@
 */
 
 import assert from "node:assert";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 
 import { logger } from "../../helpers/logger.ts";
-import { validatePortNo } from "../../helpers/number.ts";
+import {
+	type RelayCache,
+	type ValidateRemoteRelaysMessage,
+	validateRemoteRelays,
+} from "./relay-validation.ts";
+export type {
+	RelayCache,
+	ValidateRemoteRelaysMessage,
+} from "./relay-validation.ts";
 import { writeTextFile } from "../../helpers/text-files.ts";
 
 import { getConfig, saveConfig } from "../config.ts";
 import { broadcastMsg } from "../ui/websocket-server.ts";
-
-type RelayCache = {
-	servers: Record<
-		string,
-		{
-			type: string;
-			name: string;
-			default?: true;
-			addr: string;
-			port: number;
-		}
-	>;
-	accounts: Record<
-		string,
-		{
-			name: string;
-			ingest_key: string;
-			disabled?: true;
-		}
-	>;
-};
 
 type RelaysResponseMessage = {
 	servers: Record<
@@ -63,28 +51,19 @@ type RelaysResponseMessage = {
 	>;
 };
 
-export type ValidateRemoteRelaysMessage = {
-	relays: {
-		servers: Record<
-			string,
-			{
-				type?: unknown;
-				name?: unknown;
-				addr?: unknown;
-				port?: unknown;
-				default?: unknown;
-			}
-		>;
-		accounts: Record<
-			string,
-			{
-				name?: unknown;
-				ingest_key?: unknown;
-				disabled?: unknown;
-			}
-		>;
+const relayEvents = new EventEmitter();
+let relayRtts: Record<string, number> = {};
+export function onRelaysChange(callback: () => void) {
+	relayEvents.on("change", callback);
+	return () => {
+		relayEvents.off("change", callback);
 	};
-};
+}
+export function updateRelayRtts(rtts: Record<string, number>) {
+	if (JSON.stringify(relayRtts) === JSON.stringify(rtts)) return;
+	relayRtts = rtts;
+	broadcastMsg("relays", buildRelaysMsg());
+}
 
 const RELAYS_CACHE_FILE = "relays_cache.json";
 
@@ -114,7 +93,10 @@ export function buildRelaysMsg() {
 		if (!relayServer) continue;
 
 		msg.servers[s] = {
-			name: relayServer.name,
+			name:
+				relayRtts[s] === undefined
+					? relayServer.name
+					: `${relayRtts[s] <= 80 ? "🟢" : relayRtts[s] <= 150 ? "🟡" : "🔴"} ${relayServer.name} (${relayRtts[s]} ms)`,
 			default: relayServer.default,
 		};
 	}
@@ -136,54 +118,11 @@ export async function updateCachedRelays(relays: RelayCache | undefined) {
 	try {
 		assert.deepStrictEqual(relays, relaysCache);
 	} catch (err) {
-		logger.debug("updated the relays cache", relays);
+		logger.debug("updated the relays cache");
 		relaysCache = relays;
 		await writeTextFile(RELAYS_CACHE_FILE, JSON.stringify(relays));
+		relayEvents.emit("change");
 		return true;
-	}
-}
-
-function validateRemoteRelays(msg: ValidateRemoteRelaysMessage["relays"]) {
-	try {
-		const out: RelayCache = { servers: {}, accounts: {} };
-		for (const r_id in msg.servers) {
-			const r = msg.servers[r_id];
-			if (!r) continue;
-
-			if (
-				r.type !== "srtla" ||
-				typeof r.name !== "string" ||
-				typeof r.addr !== "string"
-			)
-				continue;
-			if (r.default && r.default !== true) continue;
-
-			const port = validatePortNo(r.port as string);
-			if (!port) continue;
-
-			out.servers[r_id] = {
-				type: r.type,
-				name: r.name,
-				addr: r.addr,
-				port: port,
-			};
-			if (r.default) out.servers[r_id].default = true;
-		}
-
-		for (const a_id in msg.accounts) {
-			const a = msg.accounts[a_id];
-			if (!a || typeof a.name !== "string" || typeof a.ingest_key !== "string")
-				continue;
-
-			out.accounts[a_id] = { name: a.name, ingest_key: a.ingest_key };
-			if (a.disabled) out.accounts[a_id].disabled = true;
-		}
-
-		if (Object.keys(out.servers).length < 1) return;
-
-		return out;
-	} catch (err) {
-		return undefined;
 	}
 }
 

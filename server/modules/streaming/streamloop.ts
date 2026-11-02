@@ -15,15 +15,11 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { type ChildProcessByStdio, spawn } from "node:child_process";
-import type { Readable } from "node:stream";
-
 import type WebSocket from "ws";
-
 import { isLocalIp } from "../../helpers/ip-addresses.ts";
 import { logger } from "../../helpers/logger.ts";
-
-import { getConfig } from "../config.ts";
+import { getConfig, saveConfig } from "../config.ts";
+import { getBcrptLowMtu } from "../network/bcrpt.ts";
 import { onNetworkInterfacesChange } from "../network/network-interfaces.ts";
 import { setup } from "../setup.ts";
 import {
@@ -35,247 +31,200 @@ import {
 	notificationExists,
 } from "../ui/notifications.ts";
 import { sendStatus } from "../ui/status.ts";
-import { getSocketSenderId } from "../ui/websocket-server.ts";
-
-import { abortAsrcRetry, isAsrcRetryScheduled } from "./audio.ts";
+import { broadcastMsg, getSocketSenderId } from "../ui/websocket-server.ts";
+import { DEFAULT_AUDIO_ID, asrcProbe, pipelineSetAsrc } from "./audio.ts";
+import { bootAutostart } from "./boot-autostart.ts";
+import type { ConfigParameters, ValidatedStream } from "./config-validation.ts";
+import { setBitrate } from "./encoder.ts";
+import { removeBitrateOverlay } from "./pipelines.ts";
+import { ProcessSupervisor } from "./process-supervisor.ts";
 import {
 	genSrtalIpListForLocalIpAddress,
 	genSrtlaIpList,
+	resolveSrtla,
 	restartSrtla,
 	setSrtlaIpList,
 } from "./srtla.ts";
+import { StreamLifecycle } from "./start-lifecycle.ts";
 import {
-	type ConfigParameters,
 	getIsStreaming,
+	saveStreamConfig,
 	startError,
-	updateConfig,
 	updateStatus,
+	validateConfig,
 } from "./streaming.ts";
-
-type ChildProcess = ChildProcessByStdio<null, null, Readable> & {
-	restartTimer?: ReturnType<typeof setTimeout>;
-};
 
 export const belacoderExec = `${setup.belacoder_path ?? "/usr/bin"}/belacoder`;
 export const srtlaSendExec = `${setup.srtla_path ?? "/usr/bin"}/srtla_send`;
 
-let streamingProcesses: Array<ChildProcess> = [];
-
-function spawnStreamingLoop(
-	command: string,
-	args: Array<string>,
-	cooldown: number,
-	errCallback: (data: string) => void,
-) {
-	const childProcess = spawn(command, args, {
-		stdio: ["inherit", "inherit", "pipe"],
-	}) as ChildProcess;
-	streamingProcesses.push(childProcess);
-
-	if (errCallback) {
-		childProcess.stderr.on("data", (data) => {
-			const dataStr = data.toString("utf8");
-			console.log(dataStr);
-			errCallback(dataStr);
-		});
-	}
-
-	childProcess.on("exit", () => {
-		childProcess.restartTimer = setTimeout(() => {
-			// remove the old process from the list
-			removeProc(childProcess);
-
-			spawnStreamingLoop(command, args, cooldown, errCallback);
-		}, cooldown);
-	});
+const supervisor = new ProcessSupervisor(undefined, (message) =>
+	logger.error(message),
+);
+let removeNetworkListener: (() => void) | undefined;
+async function stopProcesses() {
+	removeNetworkListener?.();
+	removeNetworkListener = undefined;
+	await supervisor.stop();
 }
 
-let removeNetworkInterfacesChangeListener: (() => void) | undefined;
+function pathsFor(address: string) {
+	return isLocalIp(address)
+		? genSrtalIpListForLocalIpAddress(address)
+		: genSrtlaIpList();
+}
 
-export function start(conn: WebSocket, params: ConfigParameters) {
+type StartRequest = { params: unknown; conn?: WebSocket; senderId?: string };
+type ReadyStream = ValidatedStream & { pipelineFile: string };
+
+const lifecycle = new StreamLifecycle<
+	StartRequest,
+	ValidatedStream,
+	ReadyStream
+>({
+	isUpdating,
+	status: updateStatus,
+	validate: (request) => validateConfig(request.params),
+	async prepare(validated, signal, automatic) {
+		const srtlaAddr = await resolveSrtla(validated.srtlaAddr);
+		signal.throwIfAborted();
+		if (!automatic) saveStreamConfig(validated.config);
+		if (!pathsFor(srtlaAddr).length)
+			throw new Error("Failed to start, no available network connections");
+		const { config, pipeline } = validated;
+		let pipelineFile = pipeline.path;
+		if (!config.bitrate_overlay) {
+			const generated = await removeBitrateOverlay(pipelineFile);
+			signal.throwIfAborted();
+			if (!generated)
+				throw new Error(
+					"failed to generate the pipeline file - bitrate overlay",
+				);
+			pipelineFile = generated;
+		}
+		const source = pipeline.asrc
+			? await asrcProbe(config.asrc ?? "", signal)
+			: DEFAULT_AUDIO_ID;
+		signal.throwIfAborted();
+		pipelineFile = await pipelineSetAsrc(
+			pipelineFile,
+			source,
+			pipeline.acodec ? config.acodec : undefined,
+		);
+		signal.throwIfAborted();
+		return { ...validated, srtlaAddr, pipelineFile };
+	},
+	launch(ready) {
+		const paths = pathsFor(ready.srtlaAddr);
+		if (!paths.length)
+			throw new Error("Failed to start, no available network connections");
+		setSrtlaIpList(paths);
+		if (setBitrate(ready.config) === null) throw new Error("Invalid bitrate");
+		supervisor.start();
+		removeNetworkListener = onNetworkInterfacesChange(() => {
+			try {
+				// An empty list during a handover is valid; retain the listener for recovery.
+				setSrtlaIpList(pathsFor(ready.srtlaAddr));
+				restartSrtla();
+			} catch (error) {
+				logger.error(error);
+			}
+		});
+		supervisor.spawnLoop(
+			srtlaSendExec,
+			() => [
+				"9000",
+				ready.srtlaAddr,
+				String(ready.srtlaPort),
+				String(setup.ips_file),
+			],
+			100,
+			(error) => {
+				let msg: string | undefined;
+				if (error.includes("Failed to establish any initial connections"))
+					msg = "Failed to connect to the SRTLA server. Retrying...";
+				else if (error.includes("no available connections"))
+					msg = "All SRTLA connections failed. Trying to reconnect...";
+				if (msg) notificationBroadcast("srtla", "error", msg, 5, true, false);
+			},
+		);
+		supervisor.spawnLoop(
+			belacoderExec,
+			() => {
+				const args = [
+					ready.pipelineFile,
+					"127.0.0.1",
+					"9000",
+					"-d",
+					String(ready.config.delay),
+					"-b",
+					String(setup.bitrate_file),
+					"-l",
+					String(ready.config.srt_latency),
+				];
+				if (ready.streamid) args.push("-s", ready.streamid);
+				if (getBcrptLowMtu()) args.push("-r");
+				return args;
+			},
+			2000,
+			(err) => {
+				let msg: string | undefined;
+				if (err.match("gstreamer error from alsasrc0")) {
+					msg = "Capture card error (audio). Trying to restart...";
+				} else if (err.match("gstreamer error from v4l2src0")) {
+					msg = "Capture card error (video). Trying to restart...";
+				} else if (err.match("Pipeline stall detected")) {
+					msg = "The input source has stalled. Trying to restart...";
+				} else if (err.match("Failed to establish an SRT connection")) {
+					if (!notificationExists("srtla")) {
+						const reasonMatch = err.match(
+							/Failed to establish an SRT connection: ([\w ]+)\./,
+						);
+						const reason = reasonMatch?.[1] ? ` (${reasonMatch[1]})` : "";
+						msg = `Failed to connect to the SRT server${reason}. Retrying...`;
+					}
+				} else if (err.match(/The SRT connection.+, exiting/)) {
+					if (!notificationExists("srtla")) {
+						msg = "The SRT connection failed. Trying to reconnect...";
+					}
+				}
+				if (msg) {
+					notificationBroadcast("belacoder", "error", msg, 5, true, false);
+				}
+			},
+		);
+	},
+	stop: stopProcesses,
+	error(error, automatic, request) {
+		const message = error instanceof Error ? error.message : String(error);
+		if (!automatic && request.conn)
+			startError(request.conn, message, request.senderId);
+		else logger.warn(`autostart failed: ${message}`);
+	},
+});
+
+export async function start(conn: WebSocket, params: ConfigParameters) {
 	if (getIsStreaming() || isUpdating()) {
 		sendStatus(conn);
 		return;
 	}
+	await lifecycle.start({ params, conn, senderId: getSocketSenderId(conn) });
+}
 
-	const senderId = getSocketSenderId(conn);
-	updateConfig(conn, params, (pipeline, srtlaAddr, srtlaPort, streamid) => {
-		if (removeNetworkInterfacesChangeListener) {
-			removeNetworkInterfacesChangeListener();
-		}
+export async function stop() {
+	await lifecycle.stop();
+	periodicCheckForSoftwareUpdates();
+}
 
-		const handleSrtlaIpAddresses = () => {
-			const srtlaIpList = isLocalIp(srtlaAddr)
-				? genSrtalIpListForLocalIpAddress(srtlaAddr)
-				: genSrtlaIpList();
-			if (!srtlaIpList.length) {
-				startError(
-					conn,
-					"Failed to start, no available network connections",
-					senderId,
-				);
-				return;
-			}
+export function setAutostart(value: unknown) {
+	if (typeof value !== "boolean") return;
+	getConfig().autostart = value;
+	saveConfig();
+	if (!value) lifecycle.cancelAutostart();
+	broadcastMsg("config", getConfig());
+}
 
-			setSrtlaIpList(srtlaIpList);
-
-			if (getIsStreaming()) {
-				restartSrtla();
-			}
-		};
-
-		handleSrtlaIpAddresses();
-		removeNetworkInterfacesChangeListener = onNetworkInterfacesChange(
-			handleSrtlaIpAddresses,
-		);
-
-		updateStatus(true);
-
-		spawnStreamingLoop(
-			srtlaSendExec,
-			[9000, srtlaAddr, srtlaPort, setup.ips_file],
-			100,
-			(err) => {
-				let msg: string | undefined;
-				if (err.match("Failed to establish any initial connections")) {
-					msg = "Failed to connect to the SRTLA server. Retrying...";
-				} else if (err.match("no available connections")) {
-					msg = "All SRTLA connections failed. Trying to reconnect...";
-				}
-				if (msg) {
-					notificationBroadcast("srtla", "error", msg, 5, true, false);
-				}
-			},
-		);
-
-		const config = getConfig();
-		const belacoderArgs = [
-			pipeline,
-			"127.0.0.1",
-			"9000",
-			"-d",
-			config.delay,
-			"-b",
-			setup.bitrate_file,
-			"-l",
-			config.srt_latency,
-		];
-
-		if (streamid !== "") {
-			belacoderArgs.push("-s");
-			belacoderArgs.push(streamid);
-		}
-
-		spawnStreamingLoop(belacoderExec, belacoderArgs, 2000, (err) => {
-			let msg: string | undefined;
-			if (err.match("gstreamer error from alsasrc0")) {
-				msg = "Capture card error (audio). Trying to restart...";
-			} else if (err.match("gstreamer error from v4l2src0")) {
-				msg = "Capture card error (video). Trying to restart...";
-			} else if (err.match("Pipeline stall detected")) {
-				msg = "The input source has stalled. Trying to restart...";
-			} else if (err.match("Failed to establish an SRT connection")) {
-				if (!notificationExists("srtla")) {
-					const reasonMatch = err.match(
-						/Failed to establish an SRT connection: ([\w ]+)\./,
-					);
-					const reason = reasonMatch?.[1] ? ` (${reasonMatch[1]})` : "";
-					msg = `Failed to connect to the SRT server${reason}. Retrying...`;
-				}
-			} else if (err.match(/The SRT connection.+, exiting/)) {
-				if (!notificationExists("srtla")) {
-					msg = "The SRT connection failed. Trying to reconnect...";
-				}
-			}
-			if (msg) {
-				notificationBroadcast("belacoder", "error", msg, 5, true, false);
-			}
-		});
+export function initAutostart() {
+	bootAutostart(getConfig().autostart === true, () => {
+		void lifecycle.start({ params: { ...getConfig() } }, true);
 	});
-}
-
-function removeProc(process: ChildProcess) {
-	streamingProcesses = streamingProcesses.filter((p) => p !== process);
-}
-
-function stopProcess(process: ChildProcess) {
-	if (process.restartTimer) {
-		clearTimeout(process.restartTimer);
-	}
-
-	process.removeAllListeners("exit");
-	process.on("exit", () => {
-		removeProc(process);
-	});
-
-	if (process.exitCode === null && process.signalCode === null) {
-		process.kill("SIGTERM");
-		return false;
-	}
-
-	removeProc(process);
-	return true;
-}
-
-const stopCheckInterval = 50;
-
-function waitForAllProcessesToTerminate() {
-	if (streamingProcesses.length === 0) {
-		logger.info("stop: all processes terminated");
-		updateStatus(false);
-
-		periodicCheckForSoftwareUpdates();
-	} else {
-		for (const p of streamingProcesses) {
-			logger.info(`stop: still waiting for ${p.spawnfile} to terminate...`);
-		}
-		setTimeout(waitForAllProcessesToTerminate, stopCheckInterval);
-	}
-}
-
-function stopAll() {
-	for (const p of streamingProcesses) {
-		stopProcess(p);
-	}
-	setTimeout(waitForAllProcessesToTerminate, stopCheckInterval);
-}
-
-export function stop() {
-	if (isAsrcRetryScheduled()) {
-		abortAsrcRetry();
-
-		if (streamingProcesses.length === 0) {
-			updateStatus(false);
-			return;
-		}
-
-		logger.error("stop: BUG?: found both a timer and running processes");
-	}
-
-	let foundBelacoder = false;
-
-	for (const p of streamingProcesses) {
-		p.removeAllListeners("exit");
-		if (p.spawnfile.endsWith("belacoder")) {
-			foundBelacoder = true;
-			logger.debug("stop: found the belacoder process");
-
-			if (!stopProcess(p)) {
-				// if the process is active, wait for it to exit
-				p.on("exit", () => {
-					logger.info("stop: belacoder terminated");
-					stopAll();
-				});
-			} else {
-				// if belacoder has terminated already, skip to the next step
-				logger.info("stop: belacoder already terminated");
-				stopAll();
-			}
-		}
-	}
-
-	if (!foundBelacoder) {
-		logger.error("stop: BUG?: belacoder not found, terminating all processes");
-		stopAll();
-	}
 }

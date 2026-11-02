@@ -32,7 +32,7 @@ import {
 import { getRemoteWebSocket, setRemoteKey } from "../remote/remote.ts";
 import { type BitrateParams, setBitrate } from "../streaming/encoder.ts";
 import { type StartMessage, getIsStreaming } from "../streaming/streaming.ts";
-import { start, stop } from "../streaming/streamloop.ts";
+import { setAutostart, start, stop } from "../streaming/streamloop.ts";
 import { getLog } from "../system/logs.ts";
 import { isUpdating, startSoftwareUpdate } from "../system/software-updates.ts";
 import { resetSshPassword, startStopSsh } from "../system/ssh.ts";
@@ -63,7 +63,10 @@ type ConfigRemoteKeyMessage = {
 };
 
 type ConfigMessage = {
-	config: ConfigPasswordMessage | ConfigRemoteKeyMessage;
+	config:
+		| ConfigPasswordMessage
+		| ConfigRemoteKeyMessage
+		| { autostart: boolean };
 };
 
 type CommandMessage = {
@@ -259,6 +262,11 @@ function handleConfig(
 
 	for (const type in msg) {
 		switch (type) {
+			case "autostart":
+				setAutostart(
+					extractMessage<{ autostart: boolean }, "autostart">(msg, "autostart"),
+				);
+				break;
 			case "remote_key":
 				setRemoteKey(
 					extractMessage<ConfigRemoteKeyMessage, typeof type>(msg, type),

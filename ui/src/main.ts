@@ -38,12 +38,14 @@ import { initSoftwareUpdate } from "./modules/system/software-update.ts";
 import { initSsh } from "./modules/system/ssh.ts";
 import { initCommandButtons } from "./modules/ui/command-button.ts";
 import { initCopyToClipboard } from "./modules/ui/copy-to-clipboard.ts";
+import { initLocalSettings } from "./modules/ui/local-settings.ts";
 import { initLogin } from "./modules/ui/login.ts";
 import { initPasswordBoxes } from "./modules/ui/password-box.ts";
 import { initTheme } from "./modules/ui/theme.ts";
 import { initWebsocket } from "./modules/ui/websocket.ts";
 
 initTheme();
+initLocalSettings();
 initWebsocket();
 initRemote();
 initSoftwareUpdate();

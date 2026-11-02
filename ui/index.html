@@ -92,39 +92,23 @@
         </div>
     </div>
 
-    <div id="main" class="d-none mb-2">
-        <div class="mb-4">
+    <div id="main" class="d-none mb-0">
+        <div class="mb-2">
             <button type="button" id="startStop" class="btn btn-lg btn-block mb-2 netact">
                 Start
             </button>
 
-            <div class="form-group">
+            <div class="form-group row">
+                <div class="col">
                 <input type="text" id="bitrateValues" class="slider-values form-control" readonly/>
                 <div id="bitrateSlider" class="slider mt-2"></div>
+                </div>
+                <div class="col-auto pl-0 d-none"><button type="button" class="button-slider-lock-unlock btn py-0 px-2" aria-label="Unlock slider"></button></div>
             </div>
         </div> <!-- .mb-4 -->
 
-        <table class="table mb-4">
-            <thead>
-            <tr>
-                <th scope="col"></th>
-                <th scope="col">Port</th>
-                <th scope="col">IP</th>
-                <th scope="col" class="col-6">Bitrate</th>
-            </tr>
-            </thead>
-            <tbody id="modems"></tbody>
-        </table>
-
-        <table class="table mb-4">
-            <thead>
-            <tr>
-                <th scope="col" style="width: 160px">Sensor</th>
-                <th scope="col">Measurement</th>
-            </tr>
-            </thead>
-            <tbody id="sensors"></tbody>
-        </table>
+        <table class="table mb-0" id="netifTable" aria-label="Network connections"><tbody></tbody></table>
+        <table class="table mb-2" id="sensorsTable" aria-label="Sensors"><tbody></tbody></table>
 
         <div class="modal fade" id="wifiModal" tabindex="-1" role="dialog" aria-labelledby="wifiModalLabel"
              aria-hidden="true">
@@ -210,10 +194,13 @@
                             <label for="audioCodec">Audio codec</label>
                             <select class="custom-select" id="audioCodec"></select>
                         </div>
-                        <div id="delay" class="form-group">
+                        <div id="delay" class="form-group row">
+                            <div class="col">
                             <label class="sr-only" for="delayValue">Delay</label>
                             <input id="delayValue" class="slider-values form-control" readonly/>
                             <div id="delaySlider" class="slider mt-2"></div>
+                            </div>
+                            <div class="col-auto pl-0 d-none"><button type="button" class="button-slider-lock-unlock btn py-0 px-2" aria-label="Unlock slider"></button></div>
                         </div>
                         <div class="form-check form-group" id="bitrateOverlaySetting">
                             <input class="form-check-input" type="checkbox" value="enabled" id="bitrateOverlay">
@@ -265,10 +252,13 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="form-group">
+                        <div class="form-group row">
+                            <div class="col">
                             <label class="sr-only" for="srtLatencyValue">SRT latency</label>
                             <input id="srtLatencyValue" class="slider-values form-control" readonly/>
                             <div id="srtLatencySlider" class="slider mt-2"></div>
+                            </div>
+                            <div class="col-auto pl-0 d-none"><button type="button" class="button-slider-lock-unlock btn py-0 px-2" aria-label="Unlock slider"></button></div>
                         </div>
                         <div id="latencyWarning" class="d-none alert alert-danger m-0">
                             <p class="m-0">Recommended latency: 1500-2500ms</p>
@@ -376,7 +366,17 @@
                             </div> <!-- .form-group -->
                         </form>
 
-                        <button type="button" id="softwareUpdate" class="btn btn-block btn-primary netact d-none"
+                        <form id="autoStartForm" class="form-group">
+            <div class="input-group">
+                <div class="form-control form-check text-truncate" style="padding-left: 2rem !important">
+                    <input class="form-check-input netact" type="checkbox" id="autoStart">
+                    <label class="form-check-label" for="autoStart">Start streaming automatically</label>
+                </div>
+                <div class="input-group-append"><button class="btn btn-outline-success netact" type="submit" disabled>Save</button></div>
+            </div>
+        </form>
+
+        <button type="button" id="softwareUpdate" class="btn btn-block btn-primary netact d-none"
                                 disabled>
                             Software update <span class="desc"></span>
                         </button>
@@ -399,13 +399,21 @@
         </div> <!-- #settings -->
     </div> <!-- #main -->
 
-    <div class="text-center small d-none" id="themeSelector">
+    <div class="small d-flex flex-wrap justify-content-center d-none mb-2" id="localSettings">
+    <span class="mx-2" id="themeSelector">
         <label for="theme">Theme:</label>
         <select id="theme">
             <option value="auto">Auto</option>
             <option value="dark">Dark</option>
             <option value="light">Light</option>
         </select>
+    </span>
+    <span class="mx-2" id="sliderLockSetting">Slider locks:
+        <select aria-label="Slider locks"><option value="autolock">On + auto-lock</option><option value="on">On</option><option value="off">Off</option></select>
+    </span>
+    <span class="mx-2" id="layoutSetting">Layout:
+        <select aria-label="Layout"><option value="standard">standard</option><option value="netif-first">bitrate on top</option></select>
+    </span>
     </div>
 </div> <!-- .container -->
 

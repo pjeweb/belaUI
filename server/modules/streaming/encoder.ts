@@ -29,7 +29,8 @@ export type BitrateParams = { max_br?: number };
 export function setBitrate(params: BitrateParams) {
 	const minBr = MIN_BITRATE; // Kbps
 
-	if (params.max_br === undefined) return null;
+	if (params.max_br === undefined || !Number.isInteger(params.max_br))
+		return null;
 	if (params.max_br < minBr || params.max_br > MAX_BITRATE) return null;
 
 	const config = getConfig();

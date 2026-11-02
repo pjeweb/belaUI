@@ -26,6 +26,7 @@ import { getPasswordHash, setPasswordHash } from "./ui/auth.ts";
 const CONFIG_FILE = "config.json";
 
 let config: {
+	autostart?: boolean;
 	password?: string;
 	password_hash?: string;
 	ssh_pass?: string;

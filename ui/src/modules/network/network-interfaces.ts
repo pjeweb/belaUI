@@ -78,9 +78,11 @@ function genNetifEntry(
 export function updateNetif(netifs: Record<string, NetworkInterface>) {
 	const modemList = [];
 	let totalKbps = 0;
+	let enabledCount = 0;
 
 	for (const i in netifs) {
 		const data = netifs[i];
+		if (data.enabled) enabledCount++;
 		const tpKbps = Math.round((data.tp * 8) / 1024);
 		totalKbps += tpKbps;
 
@@ -96,10 +98,19 @@ export function updateNetif(netifs: Record<string, NetworkInterface>) {
 	}
 
 	if (Object.keys(netifs).length > 1) {
-		modemList.push(
-			genNetifEntry(undefined, undefined, "", "", `${totalKbps} Kbps`, true),
+		modemList.unshift(
+			genNetifEntry(
+				undefined,
+				undefined,
+				"Total",
+				enabledCount === Object.keys(netifs).length
+					? `${enabledCount} conns`
+					: `${enabledCount} / ${Object.keys(netifs).length} conns`,
+				`${totalKbps} Kbps`,
+				true,
+			),
 		);
 	}
 
-	$("#modems").html(modemList as unknown as string);
+	$("#netifTable>tbody").html(modemList as unknown as string);
 }

@@ -31,5 +31,5 @@ export function updateSensors(sensors: Record<string, string>) {
 		sensorList.push(entry);
 	}
 
-	$("#sensors").html(sensorList as unknown as string);
+	$("#sensorsTable>tbody").html(sensorList as unknown as string);
 }
