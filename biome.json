@@ -7,7 +7,7 @@
 			"config.json",
 			"gsm_operator_cache.json"
 		],
-		"include": ["server/**/*", "ui/**/*", "*.json"],
+		"include": ["server/**/*", "ui/**/*", "*.json", ".github/scripts/**/*"],
 		"ignoreUnknown": true
 	}
 }

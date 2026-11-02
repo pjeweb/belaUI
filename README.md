@@ -4,6 +4,8 @@ This is a fork of the default BELABOX UI (belaUI), that ported the code to Types
 
 The current source includes the upstream catch-up through official belaUI `6659308`: BCRPT relay probing and low-MTU handling, guarded autostart, slider locks and statistics layout updates. See [upstream synchronization](docs/upstream-parity.md) for the commit mapping, runtime requirements, preserved local-subnet behavior and device qualification checklist.
 
+See [branches and CI/CD](docs/automation.md) for the `main` development branch, dedicated upstream mirror, validation artifacts and tag-based releases.
+
 ## CeraUI Integration
 
 This fork includes an option to use the [CeraUI](https://github.com/CERALIVE/CeraUI) interface, which is an alternative user interface designed for enhanced usability and additional features. When the `USE_CERAUI` option is enabled during installation or deployment, the system will download the latest CeraUI [release](https://github.com/CERALIVE/CeraUI/releases/latest) and use it instead of the standard BelaUI interface.

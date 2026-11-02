@@ -2,16 +2,89 @@ name: Checks
 
 on:
   push:
+    branches: [main, override]
   pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  quality:
-    runs-on: ubuntu-latest
+  workflow-security:
+    name: Workflow security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Validate workflow syntax
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: Audit workflows with zizmor
+        uses: zizmorcore/zizmor-action@f9597c869b2e67095f9b527070297a13a6efe928 # v0.7.0
+        with:
+          version: 1.31.1
+          persona: pedantic
+          online-audits: false
+          advanced-security: false
+          annotations: true
+
+  quality:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Lint and format
+            script: check:biome
+          - name: TypeScript
+            script: check:types
+          - name: Tests
+            script: test
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.2.3
       - run: bun install --frozen-lockfile
-      - run: bun run check
+      - name: Run check
+        env:
+          CHECK_SCRIPT: ${{ matrix.script }}
+        run: bun run "$CHECK_SCRIPT"
+
+  build:
+    name: ARM64 build and package
+    needs: [workflow-security, quality]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.2.3
+      - run: bun install --frozen-lockfile
       - run: bun run build
+      - name: Package release files
+        run: |
+          mkdir release
+          tar -cJf release/belaUI.tar.xz -C dist .
+          cp LICENSE release/LICENSE
+          cd release
+          sha256sum belaUI.tar.xz LICENSE > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: belaui-linux-arm64
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
