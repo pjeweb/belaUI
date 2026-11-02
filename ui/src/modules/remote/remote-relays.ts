@@ -18,16 +18,9 @@
 import { config } from "../config.ts";
 import { updateButtonEnabledDisabled } from "../streaming/streaming.ts";
 import { removeNotification, showNotification } from "../ui/notifications.ts";
-import { genOptionList } from "../ui/options-list.ts";
+import { updateOptionList } from "../ui/options-list.ts";
 
-type Preset = { name: string; disabled?: boolean };
-
-type Relays = {
-	servers: {
-		[key: string]: { name: string; disabled?: boolean; default?: boolean };
-	};
-	accounts: { [key: string]: { name: string } };
-};
+import { RelaySelection, type Relays } from "./relay-selection.ts";
 
 /* Remote relays config */
 let isValidRelaySelection = true;
@@ -66,52 +59,20 @@ function updateRelaySettings() {
 	updateButtonEnabledDisabled();
 }
 
-let relays: Relays | undefined;
-export function updateRelays(r: Partial<Relays> | null) {
-	if (r?.servers && r.accounts) {
-		relays = r as Relays;
-	}
-
-	const preset: Record<string, Preset> = {
-		manual: { name: "Manual configuration" },
-	};
-
-	let selectedServer = config.relay_server;
-	if (!relays || config.srtla_addr || config.srtla_port) {
-		selectedServer = "manual";
-	} else if (!config.relay_server || !relays.servers[config.relay_server]) {
-		for (const s in relays.servers) {
-			if (relays.servers[s].default) {
-				selectedServer = s;
-			}
-		}
-	}
-	const serverList = genOptionList(
-		[relays ? relays.servers : {}, preset],
-		selectedServer,
-	);
-	$("#relayServer").html(serverList as unknown as string);
-
-	let selectedAccount = config.relay_account;
-	if (!relays || config.srt_streamid !== undefined) {
-		selectedAccount = "manual";
-	} else if (config.relay_account) {
-		if (!relays.accounts[config.relay_account]) {
-			preset.unavailable = { name: "No longer available", disabled: true };
-			selectedAccount = "unavailable";
-		}
-	}
-	const accountList = genOptionList(
-		[relays ? relays.accounts : {}, preset],
-		selectedAccount,
-	);
-	$("#relayAccount").html(accountList as unknown as string);
-
+const selection = new RelaySelection();
+export function updateRelays(relays: Partial<Relays> | null) {
+	const options = selection.update(config, relays);
+	updateOptionList($("#relayServer"), options.servers, options.server);
+	updateOptionList($("#relayAccount"), options.accounts, options.account);
 	updateRelaySettings();
 }
 
 export function initRemoteRelays() {
 	$("#relayServer, #relayAccount").on("change", () => {
+		selection.select(
+			String($("#relayServer").val()),
+			String($("#relayAccount").val() ?? config.relay_account ?? ""),
+		);
 		updateRelaySettings();
 	});
 }

@@ -17,20 +17,15 @@
 
 import fs from "node:fs";
 
-import type WebSocket from "ws";
-
-import { isSameSubnet } from "../../helpers/ip-addresses.ts";
 import killall from "../../helpers/killall.ts";
 
 import { dnsCacheResolve, dnsCacheValidate } from "../network/dns.ts";
 import { queueUpdateGw } from "../network/gateways.ts";
+import { selectSrtlaAddresses } from "../network/interface-addresses.ts";
 import { getNetworkInterfaces } from "../network/network-interfaces.ts";
 import { setup } from "../setup.ts";
-import { getSocketSenderId } from "../ui/websocket-server.ts";
 
-import { startError } from "./streaming.ts";
-
-export async function resolveSrtla(addr: string, conn: WebSocket) {
+export async function resolveSrtla(addr: string) {
 	let srtlaAddr = addr;
 
 	let addrs: string[] | undefined;
@@ -40,10 +35,8 @@ export async function resolveSrtla(addr: string, conn: WebSocket) {
 		addrs = res.addrs;
 		fromCache = res.fromCache;
 	} catch (err) {
-		const senderId = getSocketSenderId(conn) ?? "unknown sender";
-		startError(conn, `failed to resolve SRTLA addr ${addr}`, senderId);
 		queueUpdateGw();
-		return;
+		throw new Error(`Failed to resolve SRTLA addr ${addr}`);
 	}
 
 	if (fromCache) {
@@ -61,7 +54,7 @@ export async function resolveSrtla(addr: string, conn: WebSocket) {
 }
 
 export function setSrtlaIpList(addresses: string[]) {
-	const list = addresses.join("\n");
+	const list = addresses.length ? `${addresses.join("\n")}\n` : "";
 	fs.writeFileSync(setup.ips_file, list);
 }
 
@@ -70,33 +63,9 @@ export function restartSrtla() {
 }
 
 export function genSrtlaIpList() {
-	const list: Array<string> = [];
-
-	const networkInterfaces = getNetworkInterfaces();
-	for (const i in networkInterfaces) {
-		const networkInterface = networkInterfaces[i];
-		if (networkInterface?.enabled && networkInterface.ip) {
-			list.push(networkInterface.ip);
-		}
-	}
-
-	return list;
+	return selectSrtlaAddresses(getNetworkInterfaces());
 }
 
 export function genSrtalIpListForLocalIpAddress(ipAddress: string) {
-	const list: Array<string> = [];
-
-	const networkInterfaces = getNetworkInterfaces();
-	for (const i in networkInterfaces) {
-		const networkInterface = networkInterfaces[i];
-		if (
-			networkInterface?.ip &&
-			networkInterface.netmask &&
-			isSameSubnet(ipAddress, networkInterface.ip, networkInterface.netmask)
-		) {
-			list.push(networkInterface.ip);
-		}
-	}
-
-	return list;
+	return selectSrtlaAddresses(getNetworkInterfaces(), ipAddress);
 }

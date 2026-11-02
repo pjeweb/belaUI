@@ -17,12 +17,12 @@
 	},
 	"scripts": {
 		"build": "bun x --bun vite build --mode production",
-		"check": "run-p check:*",
-		"check:tsc": "tsc",
+		"check": "bun run check:tsc",
+		"check:tsc": "tsc --project tsconfig.app.json --pretty false && tsc --project tsconfig.node.json --pretty false",
 		"dev": "bun x --bun vite --mode development",
-		"fix": "bun x --bun @biomejs/biome check --write",
-		"format": "bun x --bun @biomejs/biome format --write",
-		"lint": "bun x --bun @biomejs/biome lint --write",
+		"fix": "bun x --no-install @biomejs/biome check --write",
+		"format": "bun x --no-install @biomejs/biome format --write",
+		"lint": "bun x --no-install @biomejs/biome lint --write",
 		"preview": "bun x --bun vite preview"
 	}
 }

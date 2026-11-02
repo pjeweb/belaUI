@@ -56,8 +56,8 @@ export type NetworkInterfaceMessage = {
 	};
 };
 
-export const NETIF_ERR_DUPIPV4 = 0x01;
-export const NETIF_ERR_HOTSPOT = 0x02;
+import { NETIF_ERR_DUPIPV4, NETIF_ERR_HOTSPOT } from "./interface-addresses.ts";
+export { NETIF_ERR_DUPIPV4, NETIF_ERR_HOTSPOT } from "./interface-addresses.ts";
 
 let netif: Record<string, NetworkInterface> = {};
 

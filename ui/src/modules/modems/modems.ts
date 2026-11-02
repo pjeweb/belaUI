@@ -21,7 +21,7 @@ import type {
 } from "@belaui/server/modules/modems/modem-status.ts";
 import type { StatusResponseMessage } from "@belaui/server/modules/ui/status.ts";
 
-import { genOptionList } from "../ui/options-list.ts";
+import { updateOptionList } from "../ui/options-list.ts";
 import { ws } from "../ui/websocket.ts";
 import { wifiSignalSymbol } from "../wifi/wifi.ts";
 
@@ -277,14 +277,11 @@ export function updateModemsState(msg: StatusResponseMessage["modems"]) {
 				const name = value.replace(/g/g, "G / ").replace(/ \/ $/, "");
 				options[value] = { name };
 			}
-			deviceCard
-				.find(".network-type-input")
-				.html(
-					genOptionList(
-						[options],
-						modemStatusUpdate.network_type.active,
-					) as unknown as string,
-				);
+			updateOptionList(
+				deviceCard.find(".network-type-input"),
+				[options],
+				modemStatusUpdate.network_type.active,
+			);
 		}
 
 		if (isFullModemState && modemStatusUpdate.config) {
@@ -357,9 +354,7 @@ export function updateModemsState(msg: StatusResponseMessage["modems"]) {
 					disabled: availableNetworks[i].availability === "forbidden",
 				};
 			}
-			networkSelect.html(
-				genOptionList([auto, options], selectedNetwork) as unknown as string,
-			);
+			updateOptionList(networkSelect, [auto, options], selectedNetwork);
 
 			// Re-enable the scan button after receiving the results
 			if (modemStatusUpdate.available_networks) {

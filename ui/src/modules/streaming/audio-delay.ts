@@ -15,6 +15,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+import { initSliderLock, resetSliderAutolock } from "../ui/local-settings.ts";
 function showDelay(value: number) {
 	const element = document.getElementById(
 		"delayValue",
@@ -31,8 +32,10 @@ export function initDelaySlider(defaultDelay: number) {
 		step: 20,
 		value: defaultDelay,
 		slide: (_, ui) => {
+			resetSliderAutolock($("#delaySlider"));
 			showDelay(ui.value ?? defaultDelay);
 		},
 	});
+	initSliderLock($("#delaySlider"));
 	showDelay(defaultDelay);
 }

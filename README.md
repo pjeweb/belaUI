@@ -2,9 +2,15 @@
 
 This is a fork of the default BELABOX UI (belaUI), that ported the code to Typescript and ESM (ECMAScript Modules).
 
+The current source includes the upstream catch-up through official belaUI `6659308`: BCRPT relay probing and low-MTU handling, guarded autostart, slider locks and statistics layout updates. See [upstream synchronization](docs/upstream-parity.md) for the commit mapping, runtime requirements, preserved local-subnet behavior and device qualification checklist.
+
+See [branches and CI/CD](docs/automation.md) for the `main` development branch, dedicated upstream mirror, validation artifacts and tag-based releases.
+
 ## CeraUI Integration
 
 This fork includes an option to use the [CeraUI](https://github.com/CERALIVE/CeraUI) interface, which is an alternative user interface designed for enhanced usability and additional features. When the `USE_CERAUI` option is enabled during installation or deployment, the system will download the latest CeraUI [release](https://github.com/CERALIVE/CeraUI/releases/latest) and use it instead of the standard BelaUI interface.
+
+That historical archive option has not been qualified against the current backend or current CeraUI platform. Pin and validate a compatible archive before using it; use the bundled UI for this catch-up's validation.
 
 
 ## Moblink support
@@ -39,15 +45,17 @@ The implementation defaults to the password `1234` and uses auto-discovery to co
 
 ### Prerequisites
 
-You will need to have [bun.sh](https://bun.sh/docs/installation) in version v1.2.3 or newer installed to run the scripts.
+Development and CI use [Bun](https://bun.sh/docs/installation) **1.2.3**, pinned in `package.json` and the workflows.
 
 ### Install dependencies
 
 To install the dependencies, you can use the following command:
 
 ```bash
-bun install
+bun install --frozen-lockfile
 ```
+
+Run typechecks, device-free regression tests and formatting/lint checks with `bun run check`. This checks the UI application and Vite configuration directly rather than only the empty project-reference config.
 
 ### Run locally on dev machine
 

@@ -21,12 +21,12 @@
 	},
 	"scripts": {
 		"build": "bun build --compile --minify --sourcemap --bytecode --target=bun-linux-arm64 belaUI.ts --outfile belaUI",
-		"check": "run-p check:*",
-		"check:tsc": "tsc",
+		"check": "bun run check:tsc",
+		"check:tsc": "tsc --project tsconfig.json --pretty false",
 		"dev": "bun run belaUI.ts",
-		"fix": "bun x --bun @biomejs/biome check --write .",
-		"format": "bun x --bun @biomejs/biome format --write .",
-		"lint": "bun x --bun @biomejs/biome lint --write ."
+		"fix": "bun x --no-install @biomejs/biome check --write .",
+		"format": "bun x --no-install @biomejs/biome format --write .",
+		"lint": "bun x --no-install @biomejs/biome lint --write ."
 	},
 	"trustedDependencies": ["@biomejs/biome"]
 }

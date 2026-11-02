@@ -71,7 +71,7 @@ async function updateModemConnection(
 }
 
 async function handleModemConfig(
-	conn: WebSocket,
+	_conn: WebSocket,
 	msg: ModemConfigMessage["config"],
 ) {
 	if (!msg.device) {
@@ -186,7 +186,10 @@ async function handleModemConfig(
 	broadcastModems({ [msg.device]: true });
 }
 
-async function handleModemScan(conn: WebSocket, msg: ModemScanMessage["scan"]) {
+async function handleModemScan(
+	_conn: WebSocket,
+	msg: ModemScanMessage["scan"],
+) {
 	const modemId = Number.parseInt(msg.device, 10);
 	if (!msg || !getModem(modemId)) return;
 

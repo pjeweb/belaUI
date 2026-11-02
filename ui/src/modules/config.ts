@@ -25,11 +25,12 @@ import { showHideRelayHint } from "./streaming/srtla-address.ts";
 import { getSshStatus, showSshStatus } from "./system/ssh.ts";
 
 export type Config = {
+	autostart?: boolean;
 	max_br?: number;
 	delay?: number;
 	srt_latency?: number;
 	srtla_addr?: string;
-	srtla_port?: string;
+	srtla_port?: number | string;
 	srt_streamid?: string;
 	remote_key?: string;
 	bitrate_overlay?: boolean;
@@ -60,6 +61,8 @@ export function loadConfig(c: Config) {
 	$("#srtlaPort").val(config.srtla_port ?? "");
 	$("#srtStreamid").val(config.srt_streamid ?? "");
 
+	$("#autoStart").prop("checked", config.autostart ?? false);
+	$("#autoStartForm button[type=submit]").prop("disabled", true);
 	$("#remoteDeviceKey").val(config.remote_key ?? "");
 	$("#remoteKeyForm button[type=submit]").prop("disabled", true);
 	$("#bitrateOverlay").prop("checked", config.bitrate_overlay);

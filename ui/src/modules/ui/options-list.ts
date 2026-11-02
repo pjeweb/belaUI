@@ -15,27 +15,60 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-type Option = { name: string; disabled?: boolean };
+export type Option = { name: string; disabled?: boolean };
 
-export function genOptionList(
-	options: Array<Record<string, Option>>,
-	selected: string | null = null,
+/** Reconcile in place so probe updates preserve open dropdowns and option identity. */
+export function reconcileOptions(
+	select: HTMLSelectElement,
+	groups: Array<Record<string, Option>>,
+	selected?: string | null,
 ) {
-	const list = [];
-	for (const o of options) {
-		for (const value in o) {
-			const html = "<option></option>";
-			const entry = $($.parseHTML(html));
-			entry.attr("value", value);
-			entry.text(o[value].name);
-			if (selected && value === selected) {
-				entry.prop("selected", true);
-			}
-			if (o[value].disabled) {
-				entry.prop("disabled", true);
-			}
-			list.push(entry);
+	const previous = select.value;
+	const entries = new Map(
+		Array.from(select.querySelectorAll("option")).map((option) => [
+			option.dataset.optionId,
+			option,
+		]),
+	);
+	const retained = new Set<HTMLOptionElement>();
+	let position = 0;
+	for (const [group, options] of groups.entries()) {
+		for (const [value, option] of Object.entries(options)) {
+			const id = `${group}:${value}`;
+			const entry =
+				entries.get(id) ?? select.ownerDocument.createElement("option");
+			entry.dataset.optionId = id;
+			if (entry.value !== value) entry.value = value;
+			if (entry.textContent !== option.name) entry.textContent = option.name;
+			if (entry.disabled !== Boolean(option.disabled))
+				entry.disabled = Boolean(option.disabled);
+			if (select.children[position] !== entry)
+				select.insertBefore(entry, select.children[position] ?? null);
+			retained.add(entry);
+			position++;
 		}
 	}
-	return list;
+	for (const entry of Array.from(select.querySelectorAll("option")))
+		if (!retained.has(entry)) entry.remove();
+	const desired = selected === undefined ? previous : selected;
+	if (
+		desired !== null &&
+		[...retained].some((entry) => entry.value === desired)
+	) {
+		if (select.value !== desired) {
+			for (const entry of retained)
+				if (entry.selected && entry.value !== desired) entry.selected = false;
+			const chosen = [...retained].find((entry) => entry.value === desired);
+			if (chosen) chosen.selected = true;
+		}
+	} else if (desired === null) select.selectedIndex = -1;
+}
+
+export function updateOptionList(
+	select: JQuery,
+	options: Array<Record<string, Option>>,
+	selected?: string | null,
+) {
+	const element = select.get(0) as HTMLSelectElement | undefined;
+	if (element) reconcileOptions(element, options, selected);
 }

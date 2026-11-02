@@ -15,7 +15,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import type { Config } from "../config.ts";
+import { type Config, config as savedConfig } from "../config.ts";
 import { getIsValidRelaySelection } from "../remote/remote-relays.ts";
 import { hideError } from "../ui/error-message.ts";
 import { ws } from "../ui/websocket.ts";
@@ -120,6 +120,29 @@ export function updateButton({
 }
 
 export function initStreamingUi() {
+	$("#autoStart").on("change", function () {
+		const checkbox = this as HTMLInputElement;
+		if (
+			checkbox.checked &&
+			!confirm(
+				"Enabling this option starts streaming automatically on power-up or reset, potentially at unintended times. Enable it only if this behavior is appropriate for this encoder.",
+			)
+		)
+			checkbox.checked = false;
+		$("#autoStartForm button[type=submit]").prop(
+			"disabled",
+			checkbox.checked === (savedConfig.autostart ?? false),
+		);
+	});
+	$("#autoStartForm").on("submit", (event) => {
+		event.preventDefault();
+		ws?.send(
+			JSON.stringify({
+				config: { autostart: $("#autoStart").prop("checked") },
+			}),
+		);
+	});
+
 	/* UI event handlers */
 	const button = document.getElementById("startStop");
 	if (!button) return;
