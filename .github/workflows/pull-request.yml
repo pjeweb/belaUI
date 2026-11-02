@@ -25,14 +25,12 @@ jobs:
           persist-credentials: false
       - name: Validate workflow syntax
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: Install pinned zizmor
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zizmor"
+          "$RUNNER_TEMP/zizmor/bin/python" -m pip install zizmor==1.31.1
       - name: Audit workflows with zizmor
-        uses: zizmorcore/zizmor-action@f9597c869b2e67095f9b527070297a13a6efe928 # v0.7.0
-        with:
-          version: 1.31.1
-          persona: pedantic
-          online-audits: false
-          advanced-security: false
-          annotations: true
+        run: '"$RUNNER_TEMP/zizmor/bin/zizmor" --offline --persona pedantic --format github .'
 
   quality:
     name: ${{ matrix.name }}
