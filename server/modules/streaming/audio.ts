@@ -70,6 +70,7 @@ export function pipelineGetAudioProps(path: string) {
 
 async function replaceAudioSettings(
 	pipelineFile: string,
+	pipelineTmp: string,
 	cardId: string,
 	codec?: string,
 ) {
@@ -97,7 +98,6 @@ async function replaceAudioSettings(
 		}
 	}
 
-	const pipelineTmp = "/tmp/belacoder_pipeline";
 	if (!(await writeTextFile(pipelineTmp, pipeline))) return;
 
 	return pipelineTmp;
@@ -195,11 +195,13 @@ export async function asrcProbe(asrc: string, signal: AbortSignal) {
 
 export async function pipelineSetAsrc(
 	pipelineFilePath: string,
+	pipelineTmp: string,
 	audioSrcId: string,
 	audioCodec?: string,
 ) {
 	const pipelineFile = await replaceAudioSettings(
 		pipelineFilePath,
+		pipelineTmp,
 		audioSrcId,
 		audioCodec,
 	);

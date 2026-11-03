@@ -39,14 +39,8 @@ import {
 } from "../wifi/wifi-device-list.ts";
 import { wifiUpdateDevices } from "../wifi/wifi-interfaces.ts";
 
-export type NetworkInterface = {
-	ip?: string;
-	netmask?: string;
-	tp: number;
-	txb: number;
-	enabled: boolean;
-	error: number;
-};
+import { InterfaceState, type NetworkInterface } from "./interface-state.ts";
+export type { NetworkInterface } from "./interface-state.ts";
 
 export type NetworkInterfaceMessage = {
 	netif: {
@@ -59,7 +53,7 @@ export type NetworkInterfaceMessage = {
 import { NETIF_ERR_DUPIPV4, NETIF_ERR_HOTSPOT } from "./interface-addresses.ts";
 export { NETIF_ERR_DUPIPV4, NETIF_ERR_HOTSPOT } from "./interface-addresses.ts";
 
-let netif: Record<string, NetworkInterface> = {};
+const interfaceState = new InterfaceState();
 
 const networkInterfacesEventEmitter = new EventEmitter();
 
@@ -76,7 +70,7 @@ export function onNetworkInterfacesChange(callback: () => void) {
 }
 
 export function getNetworkInterfaces() {
-	return netif;
+	return interfaceState.interfaces;
 }
 
 export function initNetworkInterfaceMonitoring() {
@@ -85,14 +79,17 @@ export function initNetworkInterfaceMonitoring() {
 }
 
 function updateNetif() {
+	const poll = interfaceState.beginPoll();
 	exec("ifconfig", (error, stdout) => {
 		if (error) {
 			logger.error(`Error getting ifconfig: ${error.message}`);
 			return;
 		}
 
+		if (!interfaceState.acceptPoll(poll)) return;
+		const netif = interfaceState.interfaces;
 		let intsChanged = false;
-		const newInterfaces: Record<string, NetworkInterface> = {};
+		const newInterfaces: Record<string, NetworkInterface> = Object.create(null);
 
 		wifiDeviceListStartUpdate();
 
@@ -135,7 +132,7 @@ function updateNetif() {
 					tp = txBytes - netif[name].txb;
 				}
 
-				const enabled = !netif[name] || netif[name].enabled;
+				const enabled = interfaceState.isEnabled(name);
 				const error = netif[name] ? netif[name].error : 0;
 				newInterfaces[name] = {
 					ip: inetAddr,
@@ -210,7 +207,7 @@ function updateNetif() {
 			setTimeout(wifiUpdateDevices, 1000);
 		}
 
-		netif = newInterfaces;
+		interfaceState.interfaces = newInterfaces;
 
 		if (intsChanged) {
 			triggerNetworkInterfacesChange();
@@ -271,7 +268,8 @@ type NetworkInterfaceResponseMessage = {
 };
 
 export function netIfBuildMsg() {
-	const m: NetworkInterfaceResponseMessage = {};
+	const netif = interfaceState.interfaces;
+	const m: NetworkInterfaceResponseMessage = Object.create(null);
 	for (const i in netif) {
 		const networkInterface = netif[i];
 		if (!networkInterface) continue;
@@ -290,6 +288,7 @@ export function netIfBuildMsg() {
 }
 
 function countActiveNetif() {
+	const netif = interfaceState.interfaces;
 	let count = 0;
 	for (const int in netif) {
 		if (netif[int]?.enabled) count++;
@@ -301,7 +300,7 @@ export function handleNetif(
 	conn: WebSocket,
 	msg: NetworkInterfaceMessage["netif"],
 ) {
-	const int = netif[msg.name];
+	const int = interfaceState.getInterface(msg.name);
 	if (!int) return;
 
 	if (int.ip !== msg.ip) return;
@@ -332,7 +331,7 @@ export function handleNetif(
 			}
 		}
 
-		int.enabled = msg.enabled;
+		interfaceState.setEnabled(msg.name, msg.enabled);
 		triggerNetworkInterfacesChange();
 	}
 

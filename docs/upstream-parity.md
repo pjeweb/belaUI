@@ -22,11 +22,13 @@ This implementation targets official [BELABOX/belaUI `6659308`](https://github.c
 
 Local SRTLA destinations still use matching-subnet interfaces, including receivers reached through the encoder's hotspot. This selection is independent of whether that interface is enabled for WAN bonding. Duplicate-IP interfaces are excluded. WAN destinations use enabled, usable paths.
 
-Manual startup fails before spawning when there are no eligible paths. During an active handover, an empty list is written and the sender is reloaded; the listener remains installed so later interface changes can recover it. Stop removes that listener and cancels pending DNS/audio preparation before admitting a new start.
+Manual startup fails before spawning when there are no eligible paths. During an active handover, an empty list is written and the sender is reloaded; the listener remains installed so later interface changes can recover it. Stop removes that listener and invalidates pending preparation without waiting for a resolver or file operation to finish. Admission remains locked until owned child shutdown and cleanup finish. Late success or failure belongs to its original attempt and cannot change a newer stream.
+
+Each startup attempt generates pipeline files in its own temporary directory, removed after failed/cancelled preparation or child shutdown. Explicit WAN-interface exclusions survive discovery gaps by interface name for the service lifetime; accepted enable clears the exclusion. New names and service restarts retain the usual defaults. Discovery results cannot overwrite a newer successful snapshot; a pending or failed newer poll does not block useful results.
 
 Invalid audio delay is rejected using the parsed result. Configuration validation is side-effect free, accepts numeric or decimal-string inputs, and keeps manual hostnames in saved settings for later DNS resolution. Audio preparation reports failures to its caller without inventing a WebSocket.
 
-The process supervisor handles spawn errors and restarts, cancels restart timers on Stop, stops the encoder before its sender, and escalates to SIGKILL after five seconds if a child does not exit. Probe configuration updates are serialized and obsolete DNS results are discarded. Probe output supports split/coalesced JSON lines and rejects malformed or invalid-schema messages.
+The process supervisor handles synchronous and asynchronous spawn errors and restarts, cancels all restart timers at Stop entry, stops the encoder before its sender, and escalates to SIGKILL after five seconds if a child does not exit. Shutdown observes direct-child exit even if another process holds its pipes open. Stderr reporting requires a running supervisor, an owned process entry and its current child; stopped sessions and superseded retries cannot report into a newer stream. Buffered diagnostics from the current child remain reportable until replacement or Stop. Interface and bitrate reloads signal only owned children, continuing after individual signal failures. This does not supervise descendants or guarantee termination of kernel-uninterruptible tasks. Probe configuration updates are serialized and obsolete DNS results are discarded. Probe output supports split/coalesced JSON lines and rejects malformed or invalid-schema messages.
 
 ## Runtime requirements
 
@@ -49,7 +51,7 @@ bun run build
 
 `check` runs server and actual UI application/config typechecks, device-free regression tests, and pinned Biome checks. `build` compiles the Linux ARM64 backend, builds the UI and assembles `dist/`. CI runs the same checks and build. Generated binaries and UI bundles remain ignored.
 
-Tests cover invalid input, start admission and cancellation, boot retries, boot/restart markers, local/hotspot routing, child restart and ordered/forced shutdown, probe payloads and reload races, split/invalid probe output, dropdown identity/selection and slider markup.
+Tests cover invalid input, start admission and cancellation, stale preparation success/errors across a newer start, pipeline cleanup, boot retries, boot/restart markers, local/hotspot routing, interface discovery ordering/exclusions, child restart and ordered/forced shutdown, scoped reload signals, probe payloads and reload races, split/invalid probe output, dropdown identity/selection and slider markup. Child-process controls include real harmless processes as well as synthetic event fixtures.
 
 Before deployment on recoverable media, verify:
 

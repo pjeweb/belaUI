@@ -17,9 +17,9 @@
 
 import fs from "node:fs";
 
-import killall from "../../helpers/killall.ts";
 import { getConfig, saveConfig } from "../config.ts";
 import { setup } from "../setup.ts";
+import { belacoderExec, streamingProcesses } from "./processes.ts";
 
 const MIN_BITRATE = 300; // Kbps
 const MAX_BITRATE = 12_000; // Kbps
@@ -42,7 +42,7 @@ export function setBitrate(params: BitrateParams) {
 		`${minBr * 1000}\n${config.max_br * 1000}\n`,
 	);
 
-	killall(["-HUP", "belacoder"]);
+	streamingProcesses.signal(belacoderExec, "SIGHUP");
 
 	return config.max_br;
 }

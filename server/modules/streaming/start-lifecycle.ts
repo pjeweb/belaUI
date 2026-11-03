@@ -25,6 +25,7 @@ export type StartHooks<Params, Validated, Ready> = {
 		automatic: boolean,
 	): Promise<Ready>;
 	launch(ready: Ready): void;
+	dispose?(ready: Ready): Promise<void>;
 	stop(): Promise<void>;
 	error(error: unknown, automatic: boolean, params: Params): void;
 };
@@ -33,10 +34,11 @@ export type StartHooks<Params, Validated, Ready> = {
 export class StreamLifecycle<Params, Validated, Ready> {
 	private state: "idle" | "starting" | "running" | "stopping" = "idle";
 	private controller?: AbortController;
-	private pending?: Promise<boolean>;
+	private ready?: Ready;
 	private stopping?: Promise<void>;
 	private retry?: ReturnType<typeof setTimeout>;
 	private retryAllowed = false;
+	private attempt = 0;
 
 	constructor(
 		private hooks: StartHooks<Params, Validated, Ready>,
@@ -51,67 +53,92 @@ export class StreamLifecycle<Params, Validated, Ready> {
 
 	start(params: Params, automatic = false): Promise<boolean> {
 		if (!automatic) this.cancelAutostart();
-		if (this.state !== "idle" || this.hooks.isUpdating())
+		if (this.state !== "idle" || this.stopping || this.hooks.isUpdating())
 			return Promise.resolve(false);
 		if (automatic) this.retryAllowed = true;
-		this.state = "starting";
-		this.hooks.status(true);
 		const controller = new AbortController();
 		this.controller = controller;
-		const pending = this.run(params, controller.signal, automatic);
-		this.pending = pending;
-		return pending;
+		this.state = "starting";
+		this.hooks.status(true);
+		return this.run(params, controller, automatic, ++this.attempt);
 	}
 
-	private async run(params: Params, signal: AbortSignal, automatic: boolean) {
+	private async run(
+		params: Params,
+		controller: AbortController,
+		automatic: boolean,
+		attempt: number,
+	) {
+		const signal = controller.signal;
 		let validated = false;
-		let started = false;
 		try {
 			const config = this.hooks.validate(params);
 			validated = true;
 			const ready = await this.hooks.prepare(config, signal, automatic);
-			signal.throwIfAborted();
+			if (signal.aborted || this.controller !== controller) {
+				await this.hooks.dispose?.(ready);
+				return false;
+			}
+			this.ready = ready;
 			this.hooks.launch(ready);
 			this.state = "running";
-			started = true;
+			return true;
 		} catch (error) {
-			if (!signal.aborted) {
-				await this.hooks.stop();
+			if (signal.aborted || this.controller !== controller) return false;
+			const stopping = this.finish(controller);
+			try {
 				this.hooks.error(error, automatic, params);
+			} finally {
+				await stopping;
 			}
-		} finally {
-			if (this.state !== "stopping") {
-				this.controller = undefined;
-				this.pending = undefined;
-				if (!started) {
-					this.state = "idle";
-					this.hooks.status(false);
-					if (automatic && validated && this.retryAllowed && !signal.aborted) {
-						this.retry = setTimeout(() => {
-							this.retry = undefined;
-							void this.start(params, true);
-						}, this.retryMs);
+			if (
+				automatic &&
+				validated &&
+				this.retryAllowed &&
+				!signal.aborted &&
+				this.attempt === attempt
+			) {
+				this.retry = setTimeout(() => {
+					this.retry = undefined;
+					void this.start(params, true).catch((error) =>
+						console.error("Stream retry failed", error),
+					);
+				}, this.retryMs);
+			}
+			return false;
+		}
+	}
+
+	private finish(controller: AbortController): Promise<void> {
+		if (this.stopping) return this.stopping;
+		this.state = "stopping";
+		const stopping = Promise.resolve()
+			.then(() => this.hooks.stop())
+			.then(async () => {
+				const ready = this.ready;
+				this.ready = undefined;
+				try {
+					if (ready !== undefined) await this.hooks.dispose?.(ready);
+				} finally {
+					if (this.controller === controller) {
+						this.controller = undefined;
+						this.state = "idle";
+						this.hooks.status(false);
 					}
 				}
-			}
-		}
-		return started;
+			})
+			.finally(() => {
+				if (this.stopping === stopping) this.stopping = undefined;
+			});
+		this.stopping = stopping;
+		return stopping;
 	}
 
 	stop(): Promise<void> {
 		this.cancelAutostart();
-		if (this.state === "stopping") return this.stopping ?? Promise.resolve();
-		if (this.state === "idle") return Promise.resolve();
-		this.state = "stopping";
-		this.controller?.abort();
-		this.stopping = (async () => {
-			await this.pending;
-			await this.hooks.stop();
-			this.controller = undefined;
-			this.pending = undefined;
-			this.state = "idle";
-			this.hooks.status(false);
-		})();
-		return this.stopping;
+		const controller = this.controller;
+		if (!controller) return Promise.resolve();
+		controller.abort();
+		return this.finish(controller);
 	}
 }

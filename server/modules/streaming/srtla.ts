@@ -17,13 +17,12 @@
 
 import fs from "node:fs";
 
-import killall from "../../helpers/killall.ts";
-
 import { dnsCacheResolve, dnsCacheValidate } from "../network/dns.ts";
 import { queueUpdateGw } from "../network/gateways.ts";
 import { selectSrtlaAddresses } from "../network/interface-addresses.ts";
 import { getNetworkInterfaces } from "../network/network-interfaces.ts";
 import { setup } from "../setup.ts";
+import { srtlaSendExec, streamingProcesses } from "./processes.ts";
 
 export async function resolveSrtla(addr: string) {
 	let srtlaAddr = addr;
@@ -59,7 +58,7 @@ export function setSrtlaIpList(addresses: string[]) {
 }
 
 export function restartSrtla() {
-	killall(["-HUP", "srtla_send"]);
+	streamingProcesses.signal(srtlaSendExec, "SIGHUP");
 }
 
 export function genSrtlaIpList() {
