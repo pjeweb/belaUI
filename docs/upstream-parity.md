@@ -59,4 +59,4 @@ Before deployment on recoverable media, verify:
 4. Real probe RTT/MTU output and a reduced-MTU link, including the encoder's `-r` behavior.
 5. Narrow/touch UI behavior, sliders and new audio-device rules on the relevant hardware.
 
-Legacy Moblink integration and the optional CeraUI archive installer are separate compatibility surfaces. The historical unpinned CeraUI download is not validated against this UI/protocol change. Review and pin a compatible archive before using that installer option; do not assume the latest CeraUI platform is a drop-in static UI.
+Legacy Moblink integration remains a separate compatibility surface.
