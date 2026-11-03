@@ -22,7 +22,8 @@
 		"build:copy-ui": "mkdir -p ./dist/public && rm -rf ./dist/public/* && cp -r ./ui/dist/* ./dist/public/",
 		"build:copy-server": "mkdir -p ./dist && cp ./server/belaUI ./dist/",
 		"check:types": "bun run --cwd server check && bun run --cwd ui check",
-		"test": "bun test server/tests ui/tests"
+		"test": "bun test server/tests ui/tests && bun run test:order",
+		"test:order": "bun test ./server/tests/streamloop.test.ts ./server/tests/boot-autostart.test.ts && bun test ./server/tests/boot-autostart.test.ts ./server/tests/streamloop.test.ts"
 	},
 	"trustedDependencies": ["@biomejs/biome", "esbuild"],
 	"packageManager": "bun@1.2.3"

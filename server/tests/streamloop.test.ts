@@ -83,9 +83,6 @@ mock.module("../modules/streaming/processes.ts", () => ({
 mock.module("../modules/streaming/encoder.ts", () => ({
 	setBitrate: () => 5000,
 }));
-mock.module("../modules/streaming/boot-autostart.ts", () => ({
-	bootAutostart: () => {},
-}));
 mock.module("../modules/streaming/audio.ts", () => ({
 	DEFAULT_AUDIO_ID: "Pipeline default",
 	asrcProbe: (...args: Parameters<typeof defaults.audio>) =>
