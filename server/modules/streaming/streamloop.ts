@@ -15,6 +15,9 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type WebSocket from "ws";
 import { isLocalIp } from "../../helpers/ip-addresses.ts";
 import { logger } from "../../helpers/logger.ts";
@@ -37,7 +40,12 @@ import { bootAutostart } from "./boot-autostart.ts";
 import type { ConfigParameters, ValidatedStream } from "./config-validation.ts";
 import { setBitrate } from "./encoder.ts";
 import { removeBitrateOverlay } from "./pipelines.ts";
-import { ProcessSupervisor } from "./process-supervisor.ts";
+import {
+	belacoderExec,
+	srtlaSendExec,
+	streamingProcesses as supervisor,
+} from "./processes.ts";
+export { belacoderExec, srtlaSendExec } from "./processes.ts";
 import {
 	genSrtalIpListForLocalIpAddress,
 	genSrtlaIpList,
@@ -54,12 +62,6 @@ import {
 	validateConfig,
 } from "./streaming.ts";
 
-export const belacoderExec = `${setup.belacoder_path ?? "/usr/bin"}/belacoder`;
-export const srtlaSendExec = `${setup.srtla_path ?? "/usr/bin"}/srtla_send`;
-
-const supervisor = new ProcessSupervisor(undefined, (message) =>
-	logger.error(message),
-);
 let removeNetworkListener: (() => void) | undefined;
 async function stopProcesses() {
 	removeNetworkListener?.();
@@ -74,7 +76,10 @@ function pathsFor(address: string) {
 }
 
 type StartRequest = { params: unknown; conn?: WebSocket; senderId?: string };
-type ReadyStream = ValidatedStream & { pipelineFile: string };
+type ReadyStream = ValidatedStream & {
+	pipelineFile: string;
+	dispose: () => Promise<void>;
+};
 
 const lifecycle = new StreamLifecycle<
 	StartRequest,
@@ -82,7 +87,11 @@ const lifecycle = new StreamLifecycle<
 	ReadyStream
 >({
 	isUpdating,
-	status: updateStatus,
+	status: (active) => {
+		const changed = updateStatus(active);
+		if (!active && changed) periodicCheckForSoftwareUpdates();
+	},
+	dispose: (ready) => ready.dispose(),
 	validate: (request) => validateConfig(request.params),
 	async prepare(validated, signal, automatic) {
 		const srtlaAddr = await resolveSrtla(validated.srtlaAddr);
@@ -90,28 +99,40 @@ const lifecycle = new StreamLifecycle<
 		if (!automatic) saveStreamConfig(validated.config);
 		if (!pathsFor(srtlaAddr).length)
 			throw new Error("Failed to start, no available network connections");
-		const { config, pipeline } = validated;
-		let pipelineFile = pipeline.path;
-		if (!config.bitrate_overlay) {
-			const generated = await removeBitrateOverlay(pipelineFile);
+		const directory = await mkdtemp(join(tmpdir(), "belaui-pipeline-"));
+		const dispose = () => rm(directory, { recursive: true, force: true });
+		try {
 			signal.throwIfAborted();
-			if (!generated)
-				throw new Error(
-					"failed to generate the pipeline file - bitrate overlay",
+			const { config, pipeline } = validated;
+			let pipelineFile = pipeline.path;
+			if (!config.bitrate_overlay) {
+				const generated = await removeBitrateOverlay(
+					pipelineFile,
+					join(directory, "overlay"),
 				);
-			pipelineFile = generated;
+				signal.throwIfAborted();
+				if (!generated)
+					throw new Error(
+						"failed to generate the pipeline file - bitrate overlay",
+					);
+				pipelineFile = generated;
+			}
+			const source = pipeline.asrc
+				? await asrcProbe(config.asrc ?? "", signal)
+				: DEFAULT_AUDIO_ID;
+			signal.throwIfAborted();
+			pipelineFile = await pipelineSetAsrc(
+				pipelineFile,
+				join(directory, "audio"),
+				source,
+				pipeline.acodec ? config.acodec : undefined,
+			);
+			signal.throwIfAborted();
+			return { ...validated, srtlaAddr, pipelineFile, dispose };
+		} catch (error) {
+			await dispose();
+			throw error;
 		}
-		const source = pipeline.asrc
-			? await asrcProbe(config.asrc ?? "", signal)
-			: DEFAULT_AUDIO_ID;
-		signal.throwIfAborted();
-		pipelineFile = await pipelineSetAsrc(
-			pipelineFile,
-			source,
-			pipeline.acodec ? config.acodec : undefined,
-		);
-		signal.throwIfAborted();
-		return { ...validated, srtlaAddr, pipelineFile };
 	},
 	launch(ready) {
 		const paths = pathsFor(ready.srtlaAddr);
@@ -207,12 +228,23 @@ export async function start(conn: WebSocket, params: ConfigParameters) {
 		sendStatus(conn);
 		return;
 	}
-	await lifecycle.start({ params, conn, senderId: getSocketSenderId(conn) });
+	try {
+		await lifecycle.start({
+			params: { ...params },
+			conn,
+			senderId: getSocketSenderId(conn),
+		});
+	} catch (error) {
+		logger.error(`Failed to start stream: ${error}`);
+	}
 }
 
 export async function stop() {
-	await lifecycle.stop();
-	periodicCheckForSoftwareUpdates();
+	try {
+		await lifecycle.stop();
+	} catch (error) {
+		logger.error(`Failed to stop stream: ${error}`);
+	}
 }
 
 export function setAutostart(value: unknown) {
@@ -225,6 +257,8 @@ export function setAutostart(value: unknown) {
 
 export function initAutostart() {
 	bootAutostart(getConfig().autostart === true, () => {
-		void lifecycle.start({ params: { ...getConfig() } }, true);
+		void lifecycle
+			.start({ params: { ...getConfig() } }, true)
+			.catch((error) => logger.error(`Autostart failed: ${error}`));
 	});
 }

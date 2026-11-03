@@ -5,10 +5,12 @@ import { StreamLifecycle } from "../modules/streaming/start-lifecycle.ts";
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 function deferred<T>() {
 	let resolve!: (value: T) => void;
-	const promise = new Promise<T>((r) => {
+	let reject!: (error: unknown) => void;
+	const promise = new Promise<T>((r, fail) => {
 		resolve = r;
+		reject = fail;
 	});
-	return { promise, resolve };
+	return { promise, resolve, reject };
 }
 async function until(condition: () => boolean) {
 	for (let i = 0; i < 100; i++) {
@@ -48,6 +50,70 @@ function fixture(
 }
 
 describe("stream start ownership", () => {
+	test("status callbacks cannot reenter startup before Stop completes", async () => {
+		let nested: Promise<boolean> | undefined;
+		const { lifecycle } = fixture({
+			status: (active) => {
+				if (!active) nested = lifecycle.start("nested");
+			},
+		});
+		await lifecycle.start("first");
+		await lifecycle.stop();
+		expect(await nested).toBe(false);
+		expect(await lifecycle.start("next")).toBe(true);
+		await lifecycle.stop();
+	});
+	for (const fail of [false, true]) {
+		test(`Stop completes before pending preparation ${fail ? "fails" : "succeeds"} without changing a new start`, async () => {
+			const ready = deferred<string>();
+			const disposed: string[] = [];
+			const { lifecycle, events } = fixture({
+				prepare: (value) =>
+					value === "old" ? ready.promise : Promise.resolve(value),
+				dispose: async (value) => {
+					disposed.push(value);
+				},
+			});
+			const old = lifecycle.start("old", true);
+			await lifecycle.stop();
+			expect(await lifecycle.start("new")).toBe(true);
+			const checkpoint = [...events];
+			if (fail) ready.reject(new Error("stale failure"));
+			else ready.resolve("old");
+			expect(await old).toBe(false);
+			await sleep(15);
+			expect(events).toEqual(checkpoint);
+			expect(disposed).toEqual(fail ? [] : ["old"]);
+			await lifecycle.stop();
+			expect(disposed.at(-1)).toBe("new");
+		});
+	}
+	test("repeated Stop shares process cleanup and blocks admission until it finishes", async () => {
+		const stopped = deferred<void>();
+		const { lifecycle, events } = fixture({ stop: () => stopped.promise });
+		await lifecycle.start("first");
+		const stopping = lifecycle.stop();
+		expect(lifecycle.stop()).toBe(stopping);
+		expect(await lifecycle.start("second")).toBe(false);
+		stopped.resolve();
+		await stopping;
+		expect(events.at(-1)).toBe("status:false");
+		expect(await lifecycle.start("second")).toBe(true);
+		await lifecycle.stop();
+	});
+	test("error delivery failure still finishes cleanup", async () => {
+		const { lifecycle, events } = fixture({
+			prepare: async () => {
+				throw new Error("preparation failed");
+			},
+			error: () => {
+				throw new Error("socket closed");
+			},
+		});
+		await expect(lifecycle.start("first")).rejects.toThrow("socket closed");
+		expect(events).toContain("cleanup");
+		expect(events.at(-1)).toBe("status:false");
+	});
 	test("locks before awaiting and admits only one start", async () => {
 		const ready = deferred<string>();
 		const { lifecycle, events } = fixture({ prepare: () => ready.promise });
@@ -100,7 +166,7 @@ describe("stream start ownership", () => {
 			},
 		});
 		expect(await lifecycle.start("offline")).toBe(false);
-		expect(events).toEqual(["status:true", "cleanup", "error", "status:false"]);
+		expect(events).toEqual(["status:true", "error", "cleanup", "status:false"]);
 	});
 	test("invalid saved configuration fails once without autostart retries", async () => {
 		let attempts = 0;

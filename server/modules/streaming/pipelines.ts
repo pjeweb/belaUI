@@ -116,12 +116,14 @@ export function getPipelineList() {
 	return list;
 }
 
-export async function removeBitrateOverlay(pipelineFile: string) {
+export async function removeBitrateOverlay(
+	pipelineFile: string,
+	pipelineTmp: string,
+) {
 	let pipeline = await readTextFile(pipelineFile);
 	if (!pipeline) return;
 
 	pipeline = pipeline.replace(/textoverlay[^!]*name=overlay[^!]*!/g, "");
-	const pipelineTmp = "/tmp/belacoder_pipeline";
 	if (!(await writeTextFile(pipelineTmp, pipeline))) return;
 
 	return pipelineTmp;

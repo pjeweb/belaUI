@@ -23,10 +23,8 @@ import {
 	getRelays,
 } from "../remote/remote-relays.ts";
 import { notificationSend } from "../ui/notifications.ts";
-import type { StatusResponseMessage } from "../ui/status.ts";
 import {
 	broadcastMsg,
-	buildMsg,
 	deleteSocketSenderId,
 	getSocketSenderId,
 	setSocketSenderId,
@@ -72,22 +70,16 @@ export function startError(conn: WebSocket, msg: string, id?: string) {
 		setSocketSenderId(conn, id);
 	}
 
-	notificationSend(conn, "start_error", "error", msg, 10);
-
-	if (id !== undefined) {
-		if (originalId) {
-			setSocketSenderId(conn, originalId);
-		} else {
-			deleteSocketSenderId(conn);
+	try {
+		notificationSend(conn, "start_error", "error", msg, 10);
+	} finally {
+		if (id !== undefined) {
+			if (originalId) {
+				setSocketSenderId(conn, originalId);
+			} else {
+				deleteSocketSenderId(conn);
+			}
 		}
-	}
-
-	if (!updateStatus(false)) {
-		conn.send(
-			buildMsg("status", {
-				is_streaming: false,
-			} satisfies StatusResponseMessage),
-		);
 	}
 
 	return false;

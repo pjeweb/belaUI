@@ -19,7 +19,11 @@ import { type ChildProcess, spawn } from "node:child_process";
 
 type Spawn = (command: string, args: string[]) => ChildProcess;
 type StreamingProcess = {
-	child: ChildProcess;
+	command: string;
+	args: () => string[];
+	cooldown: number;
+	report: (data: string) => void;
+	child?: ChildProcess;
 	closed: boolean;
 	done: Promise<void>;
 	restartTimer?: ReturnType<typeof setTimeout>;
@@ -37,6 +41,7 @@ export class ProcessSupervisor {
 	) {}
 
 	start() {
+		if (this.stopping) throw new Error("Stream processes are stopping");
 		this.running = true;
 	}
 
@@ -47,42 +52,87 @@ export class ProcessSupervisor {
 		report: (data: string) => void,
 	) {
 		if (!this.running) return;
-		const child = this.spawnProcess(command, args());
-		let closed!: () => void;
 		const process: StreamingProcess = {
-			child,
-			closed: false,
-			done: new Promise<void>((resolve) => {
-				closed = resolve;
-			}),
+			command,
+			args,
+			cooldown,
+			report,
+			closed: true,
+			done: Promise.resolve(),
 		};
 		this.processes.add(process);
-		child.stderr?.on("data", (data) => {
-			report(data.toString("utf8"));
+		this.spawn(process);
+	}
+
+	private retry(process: StreamingProcess) {
+		if (!this.running || !this.processes.has(process)) return;
+		process.restartTimer = setTimeout(() => {
+			process.restartTimer = undefined;
+			if (this.running && this.processes.has(process)) this.spawn(process);
+		}, process.cooldown);
+	}
+
+	private spawn(process: StreamingProcess) {
+		let child: ChildProcess;
+		try {
+			child = this.spawnProcess(process.command, process.args());
+		} catch (error) {
+			this.log(`Failed to spawn ${process.command}: ${error}`);
+			this.retry(process);
+			return;
+		}
+		process.child = child;
+		process.closed = false;
+		let resolve!: () => void;
+		process.done = new Promise<void>((done) => {
+			resolve = done;
 		});
-		child.on("error", (error) => {
-			this.log(`Failed to spawn ${command}: ${error.message}`);
-		});
-		child.on("close", () => {
+		const finished = () => {
+			if (process.child !== child || process.closed) return;
 			process.closed = true;
-			closed();
-			if (this.running)
-				process.restartTimer = setTimeout(() => {
-					this.processes.delete(process);
-					if (this.running) this.spawnLoop(command, args, cooldown, report);
-				}, cooldown);
-			else this.processes.delete(process);
+			resolve();
+			this.retry(process);
+		};
+		child.stderr?.on("data", (data) => process.report(data.toString("utf8")));
+		child.on("error", (error) => {
+			this.log(`Child ${process.command}: ${error.message}`);
+			if (child.pid === undefined) finished();
 		});
+		// Exit tracks the direct child even if a descendant keeps a pipe open.
+		child.once("exit", finished);
+		child.once("close", finished);
+	}
+
+	signal(command: string, signal: NodeJS.Signals) {
+		if (!this.running) return;
+		for (const process of this.processes) {
+			if (process.command !== command || process.closed || !process.child)
+				continue;
+			try {
+				process.child.kill(signal);
+			} catch (error) {
+				this.log(`Failed to signal ${command}: ${error}`);
+			}
+		}
 	}
 
 	private async terminate(process: StreamingProcess) {
 		clearTimeout(process.restartTimer);
-		if (!process.closed) {
-			process.child.kill("SIGTERM");
+		const child = process.child;
+		if (!process.closed && child) {
 			const timeout = setTimeout(() => {
-				process.child.kill("SIGKILL");
+				try {
+					child.kill("SIGKILL");
+				} catch (error) {
+					this.log(`Failed to terminate ${process.command}: ${error}`);
+				}
 			}, this.killTimeout);
 			try {
+				try {
+					child.kill("SIGTERM");
+				} catch (error) {
+					this.log(`Failed to stop ${process.command}: ${error}`);
+				}
 				await process.done;
 			} finally {
 				clearTimeout(timeout);
@@ -94,17 +144,19 @@ export class ProcessSupervisor {
 	stop(): Promise<void> {
 		if (this.stopping) return this.stopping;
 		this.running = false;
-		// Stop the encoder before its sender, so media shuts down in order.
-		this.stopping = (async () => {
-			await Promise.all(
-				[...this.processes]
-					.filter((p) => p.child.spawnfile.endsWith("belacoder"))
-					.map((p) => this.terminate(p)),
-			);
-			await Promise.all([...this.processes].map((p) => this.terminate(p)));
-		})().finally(() => {
-			this.stopping = undefined;
-		});
+		for (const process of this.processes) clearTimeout(process.restartTimer);
+		this.stopping = Promise.resolve()
+			.then(async () => {
+				await Promise.all(
+					[...this.processes]
+						.filter((p) => p.command.endsWith("belacoder"))
+						.map((p) => this.terminate(p)),
+				);
+				await Promise.all([...this.processes].map((p) => this.terminate(p)));
+			})
+			.finally(() => {
+				this.stopping = undefined;
+			});
 		return this.stopping;
 	}
 }

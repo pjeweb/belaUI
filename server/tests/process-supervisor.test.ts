@@ -113,3 +113,28 @@ test("unresponsive children are force-killed before Stop completes", async () =>
 	await supervisor.stop();
 	expect(child.signals).toEqual(["SIGTERM", "SIGKILL"]);
 });
+
+test("direct-child exit completes Stop without waiting for pipe close", async () => {
+	const child = new Child("belacoder", []);
+	child.kill = (signal) => {
+		child.signals.push(signal);
+		queueMicrotask(() => {
+			child.emit("exit", 0, null);
+		});
+		return true;
+	};
+	const supervisor = new ProcessSupervisor(
+		() => child as unknown as ChildProcess,
+		() => {},
+		5,
+	);
+	supervisor.start();
+	supervisor.spawnLoop(
+		"belacoder",
+		() => [],
+		2,
+		() => {},
+	);
+	await supervisor.stop();
+	expect(child.signals).toEqual(["SIGTERM"]);
+});
