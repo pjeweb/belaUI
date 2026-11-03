@@ -269,7 +269,7 @@ type NetworkInterfaceResponseMessage = {
 
 export function netIfBuildMsg() {
 	const netif = interfaceState.interfaces;
-	const m: NetworkInterfaceResponseMessage = {};
+	const m: NetworkInterfaceResponseMessage = Object.create(null);
 	for (const i in netif) {
 		const networkInterface = netif[i];
 		if (!networkInterface) continue;
