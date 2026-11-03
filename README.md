@@ -6,13 +6,6 @@ The current source includes the upstream catch-up through official belaUI `66593
 
 See [branches and CI/CD](docs/automation.md) for the `main` development branch, dedicated upstream mirror, validation artifacts and tag-based releases.
 
-## CeraUI Integration
-
-This fork includes an option to use the [CeraUI](https://github.com/CERALIVE/CeraUI) interface, which is an alternative user interface designed for enhanced usability and additional features. When the `USE_CERAUI` option is enabled during installation or deployment, the system will download the latest CeraUI [release](https://github.com/CERALIVE/CeraUI/releases/latest) and use it instead of the standard BelaUI interface.
-
-That historical archive option has not been qualified against the current backend or current CeraUI platform. Pin and validate a compatible archive before using it; use the bundled UI for this catch-up's validation.
-
-
 ## Moblink support
 
 > [!WARNING]  
@@ -20,9 +13,11 @@ That historical archive option has not been qualified against the current backen
 
 This fork integrates [datagutt/moblink-rust](https://github.com/datagutt/moblink-rust) in the relay mode, meaning it allows Moblin apps in the network of the encoder (BELABOX) to use the network interfaces of the BELABOX including modems as Moblink relays for SRTLA from Moblin. It does not yet support using Moblinks or Moblin apps to be used as SRTLA relays for the BELABOX!
 
-The implementation defaults to the password `1234` and uses auto-discovery to connect to "Moblin Streamers" in the network. You can change the password in the `setup.json` via SSH. As of now (2025-03-30) there is no UI for Moblink in this belaUI fork, nor CeraUI.
+The implementation defaults to the password `1234` and uses auto-discovery to connect to "Moblin Streamers" in the network. You can change the password in the `setup.json` via SSH. As of now (2025-03-30) there is no UI for Moblink in this belaUI fork.
 
 ## Install the fork on your BELABOX
+
+The installer downloads the latest published release. To deploy the current checkout, build it and follow the local deployment steps below.
 
 > **Note:** Replacing the original UI directly may cause issues. When your BELABOX is updated, it can revert the UI. Ensure you monitor updates and reapply the override after updates.
 
@@ -30,14 +25,7 @@ The implementation defaults to the password `1234` and uses auto-discovery to co
 - Connect to the BELABOX via SSH (use Putty on Windows, JuiceSSH on Android)
 - Then run:
   ```bash
-  # Standard installation with BelaUI
-  wget -qO- https://raw.githubusercontent.com/pjeweb/belaui/override/install.sh | bash
-  ```
-  or
-  
-  ```bash
-  # Installation with CeraUI interface
-  wget -qO- https://raw.githubusercontent.com/pjeweb/belaui/override/install.sh | USE_CERAUI=true bash
+  wget -qO- https://raw.githubusercontent.com/pjeweb/belaUI/main/install.sh | bash
   ```
 - To get back to the default belaUI, you can then run `sudo bash /opt/belaUI/reset-to-default.sh` through SSH.
 
@@ -116,11 +104,7 @@ pair: https://www.digitalocean.com/community/tutorials/how-to-set-up-ssh-keys-on
 - Run the deployment script by specifying the SSH target as an argument. For example, to deploy as root to a host at 192.168.100.100, run:
 
 ```bash
-# Standard deployment with BelaUI
 ./deploy-to-local.sh root@192.168.100.100
-
-# Deployment with CeraUI interface
-USE_CERAUI=true ./deploy-to-local.sh root@192.168.100.100
 ```
 
 ### Reset to default belaUI
