@@ -89,7 +89,7 @@ function updateNetif() {
 		if (!interfaceState.acceptPoll(poll)) return;
 		const netif = interfaceState.interfaces;
 		let intsChanged = false;
-		const newInterfaces: Record<string, NetworkInterface> = {};
+		const newInterfaces: Record<string, NetworkInterface> = Object.create(null);
 
 		wifiDeviceListStartUpdate();
 
@@ -300,7 +300,7 @@ export function handleNetif(
 	conn: WebSocket,
 	msg: NetworkInterfaceMessage["netif"],
 ) {
-	const int = interfaceState.interfaces[msg.name];
+	const int = interfaceState.getInterface(msg.name);
 	if (!int) return;
 
 	if (int.ip !== msg.ip) return;

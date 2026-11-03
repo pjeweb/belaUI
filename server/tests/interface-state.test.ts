@@ -13,6 +13,38 @@ function connection(ip = "192.0.2.1") {
 }
 
 describe("interface discovery state", () => {
+	it("stores discovered names without a prototype", () => {
+		expect(Object.getPrototypeOf(new InterfaceState().interfaces)).toBeNull();
+	});
+	for (const name of ["__proto__", "constructor", "toString"]) {
+		it(`rejects inherited interface name ${name} without changing its prototype`, () => {
+			const state = new InterfaceState();
+			state.interfaces = { cell0: connection() };
+			const inherited = Reflect.get(state.interfaces, name);
+			const before = Object.getOwnPropertyDescriptor(inherited, "enabled");
+			try {
+				expect(state.getInterface(name)).toBeUndefined();
+				expect(state.setEnabled(name, false)).toBe(false);
+				const after = Object.getOwnPropertyDescriptor(inherited, "enabled");
+				if (before) expect(after).toEqual(before);
+				else expect(after).toBeUndefined();
+				expect(state.isEnabled(name)).toBe(true);
+			} finally {
+				if (before) Object.defineProperty(inherited, "enabled", before);
+				else Reflect.deleteProperty(inherited, "enabled");
+			}
+		});
+	}
+	it("allows a discovered own interface whose name matches a prototype property", () => {
+		const state = new InterfaceState();
+		Object.defineProperty(state.interfaces, "__proto__", {
+			value: connection(),
+			enumerable: true,
+		});
+		expect(state.setEnabled("__proto__", false)).toBe(true);
+		expect(state.getInterface("__proto__")?.enabled).toBe(false);
+		expect(Object.getPrototypeOf(state.interfaces)).toBeNull();
+	});
 	it("preserves explicit exclusion through disappearance and an address change", () => {
 		const state = new InterfaceState();
 		state.interfaces = { cell0: connection() };
@@ -55,7 +87,9 @@ describe("interface discovery state", () => {
 	});
 	it("does not carry user exclusions across a service restart", () => {
 		const first = new InterfaceState();
+		first.interfaces.cell0 = connection();
 		first.setEnabled("cell0", false);
+		expect(first.isEnabled("cell0")).toBe(false);
 		expect(new InterfaceState().isEnabled("cell0")).toBe(true);
 	});
 });

@@ -3,7 +3,12 @@ import { ChildProcess, spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { ProcessSupervisor } from "../modules/streaming/process-supervisor.ts";
+
+const childScript = fileURLToPath(
+	new URL("./fixtures/supervised-child.ts", import.meta.url),
+);
 
 function realSupervisor(report: (message: string) => void, grace: number) {
 	const supervisor = new ProcessSupervisor(
@@ -33,10 +38,7 @@ describe("stream process supervision", () => {
 		try {
 			supervisor.spawnLoop(
 				"srtla_send",
-				() => [
-					"-e",
-					`require("fs").appendFileSync(${JSON.stringify(marker)}, "start\\n");`,
-				],
+				() => [childScript, "record-exit", marker],
 				20,
 				() => {},
 			);
@@ -61,10 +63,15 @@ describe("stream process supervision", () => {
 		let ready = 0;
 		try {
 			for (const role of ["encoder", "sender"] as const) {
-				const code = `process.on("SIGTERM", () => setTimeout(() => { require("fs").appendFileSync(${JSON.stringify(marker)}, ${JSON.stringify(`${role}\n`)}); process.exit(0); }, ${role === "encoder" ? 40 : 0})); console.error("ready"); setInterval(() => {}, 1000);`;
 				supervisor.spawnLoop(
 					role === "encoder" ? "belacoder" : "srtla_send",
-					() => ["-e", code],
+					() => [
+						childScript,
+						"drain",
+						marker,
+						role,
+						role === "encoder" ? "40" : "0",
+					],
 					10,
 					() => {
 						ready++;
@@ -90,10 +97,7 @@ describe("stream process supervision", () => {
 			for (let i = 0; i < 2; i++) {
 				supervisor.spawnLoop(
 					"srtla_send",
-					() => [
-						"-e",
-						'process.on("SIGHUP", () => console.error("hup")); console.error("ready"); setInterval(() => {}, 1000);',
-					],
+					() => [childScript, "wait"],
 					10,
 					(data) => {
 						if (data.includes("ready")) ready++;
@@ -128,10 +132,7 @@ describe("stream process supervision", () => {
 		try {
 			supervisor.spawnLoop(
 				"belacoder",
-				() => [
-					"-e",
-					'process.on("SIGTERM", () => {}); console.error("ready"); setInterval(() => {}, 1000);',
-				],
+				() => [childScript, "hang"],
 				10,
 				() => {
 					ready = true;
@@ -140,10 +141,7 @@ describe("stream process supervision", () => {
 			await until(() => ready);
 			supervisor.spawnLoop(
 				"srtla_send",
-				() => [
-					"-e",
-					`require("fs").appendFileSync(${JSON.stringify(marker)}, "start\\n"); process.exit(0);`,
-				],
+				() => [childScript, "record-exit", marker],
 				100,
 				() => {},
 			);
@@ -166,11 +164,9 @@ describe("stream process supervision", () => {
 	});
 	it("signals only owned senders and can start another session after Stop", async () => {
 		const supervisor = realSupervisor(() => {}, 100);
-		const code =
-			'process.on("SIGHUP", () => console.error("hup")); console.error("ready"); setInterval(() => {}, 1000);';
 		let owned = "";
 		let unrelatedOutput = "";
-		const unrelated = spawn(process.execPath, ["-e", code], {
+		const unrelated = spawn(process.execPath, [childScript, "wait"], {
 			stdio: ["ignore", "ignore", "pipe"],
 		});
 		unrelated.stderr.on("data", (data) => {
@@ -179,7 +175,7 @@ describe("stream process supervision", () => {
 		try {
 			supervisor.spawnLoop(
 				"srtla_send",
-				() => ["-e", code],
+				() => [childScript, "wait"],
 				10,
 				(data) => {
 					owned += data;
@@ -197,7 +193,7 @@ describe("stream process supervision", () => {
 			supervisor.start();
 			supervisor.spawnLoop(
 				"srtla_send",
-				() => ["-e", code],
+				() => [childScript, "wait"],
 				10,
 				(data) => {
 					owned += data;

@@ -9,7 +9,7 @@ export type NetworkInterface = {
 
 /** Retains user exclusions across discovery gaps for this service lifetime. */
 export class InterfaceState {
-	interfaces: Record<string, NetworkInterface> = {};
+	interfaces: Record<string, NetworkInterface> = Object.create(null);
 	private excluded = new Set<string>();
 	private poll = 0;
 	private appliedPoll = 0;
@@ -25,13 +25,23 @@ export class InterfaceState {
 	}
 
 	isEnabled(name: string) {
-		return !this.excluded.has(name) && (this.interfaces[name]?.enabled ?? true);
+		return (
+			!this.excluded.has(name) && (this.getInterface(name)?.enabled ?? true)
+		);
+	}
+
+	getInterface(name: string) {
+		return Object.hasOwn(this.interfaces, name)
+			? this.interfaces[name]
+			: undefined;
 	}
 
 	setEnabled(name: string, enabled: boolean) {
+		const current = this.getInterface(name);
+		if (!current) return false;
 		if (enabled) this.excluded.delete(name);
 		else this.excluded.add(name);
-		const current = this.interfaces[name];
-		if (current) current.enabled = enabled;
+		current.enabled = enabled;
+		return true;
 	}
 }
