@@ -73,6 +73,7 @@ export class ProcessSupervisor {
 	}
 
 	private spawn(process: StreamingProcess) {
+		process.child = undefined;
 		let child: ChildProcess;
 		try {
 			child = this.spawnProcess(process.command, process.args());
@@ -93,7 +94,14 @@ export class ProcessSupervisor {
 			resolve();
 			this.retry(process);
 		};
-		child.stderr?.on("data", (data) => process.report(data.toString("utf8")));
+		child.stderr?.on("data", (data) => {
+			if (
+				this.running &&
+				this.processes.has(process) &&
+				process.child === child
+			)
+				process.report(data.toString("utf8"));
+		});
 		child.on("error", (error) => {
 			this.log(`Child ${process.command}: ${error.message}`);
 			if (child.pid === undefined) finished();
