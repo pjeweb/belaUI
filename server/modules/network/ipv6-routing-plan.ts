@@ -20,7 +20,7 @@ function valid(source: DesiredSource) {
 		(!source.gateway || isIP(source.gateway) === 6)
 	);
 }
-function remove(source: SourceRoute) {
+export function removeSourceRoute(source: SourceRoute) {
 	return [
 		[
 			"-6",
@@ -52,16 +52,13 @@ export function planIpv6Routing(
 				r.device === source.device &&
 				r.gateway === source.gateway,
 		);
-		if (old) {
-			routes.push(old);
-			continue;
-		}
-		let table = IPV6_ROUTING_BASE;
-		while (used.has(table) && table < IPV6_ROUTING_LIMIT) table++;
+
+		let table = old?.table ?? IPV6_ROUTING_BASE;
+		while (!old && used.has(table) && table < IPV6_ROUTING_LIMIT) table++;
 		if (table === IPV6_ROUTING_LIMIT)
 			throw new Error("IPv6 source routing range exhausted");
 		used.add(table);
-		const route = { ...source, table };
+		const route = old ?? { ...source, table };
 		routes.push(route);
 		commands.push([
 			"-6",
@@ -74,19 +71,20 @@ export function planIpv6Routing(
 			"table",
 			String(table),
 		]);
-		commands.push([
-			"-6",
-			"rule",
-			"add",
-			"from",
-			`${source.address}/128`,
-			"lookup",
-			String(table),
-			"priority",
-			String(table),
-		]);
+		if (!old)
+			commands.push([
+				"-6",
+				"rule",
+				"add",
+				"from",
+				`${source.address}/128`,
+				"lookup",
+				String(table),
+				"priority",
+				String(table),
+			]);
 	}
 	for (const old of current)
-		if (!routes.includes(old)) commands.push(...remove(old));
+		if (!routes.includes(old)) commands.push(...removeSourceRoute(old));
 	return { commands, routes };
 }

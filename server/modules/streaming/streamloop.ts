@@ -50,7 +50,6 @@ import {
 	genSrtalIpListForLocalIpAddress,
 	genSrtlaIpList,
 	resolveSrtla,
-	restartSrtla,
 	setSrtlaIpList,
 } from "./srtla.ts";
 import { StreamLifecycle } from "./start-lifecycle.ts";
@@ -66,8 +65,15 @@ let removeNetworkListener: (() => void) | undefined;
 async function stopProcesses() {
 	removeNetworkListener?.();
 	removeNetworkListener = undefined;
-	await supervisor.stop();
-	setSrtlaIpList([]);
+	try {
+		await supervisor.stop();
+	} finally {
+		try {
+			await setSrtlaIpList([]);
+		} catch (error) {
+			logger.error(error);
+		}
+	}
 }
 
 function pathsFor(address: string) {
@@ -135,18 +141,18 @@ const lifecycle = new StreamLifecycle<
 			throw error;
 		}
 	},
-	launch(ready) {
+	async launch(ready, signal) {
 		const paths = pathsFor(ready.srtlaAddr);
 		if (!paths.length)
 			throw new Error("Failed to start, no available network connections");
-		setSrtlaIpList(paths);
+		await setSrtlaIpList(paths);
+		signal.throwIfAborted();
 		if (setBitrate(ready.config) === null) throw new Error("Invalid bitrate");
 		supervisor.start();
-		removeNetworkListener = onNetworkInterfacesChange(() => {
+		removeNetworkListener = onNetworkInterfacesChange(async () => {
 			try {
 				// An empty list during a handover is valid; retain the listener for recovery.
-				setSrtlaIpList(pathsFor(ready.srtlaAddr));
-				restartSrtla();
+				await setSrtlaIpList(pathsFor(ready.srtlaAddr));
 			} catch (error) {
 				logger.error(error);
 			}

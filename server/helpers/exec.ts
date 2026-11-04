@@ -32,5 +32,3 @@ export function checkExecPathSafe(path: string) {
 export function checkExecPath(path: string) {
 	if (!checkExecPathSafe(path)) process.exit(1);
 }
-
-export { execFileSync } from "node:child_process";

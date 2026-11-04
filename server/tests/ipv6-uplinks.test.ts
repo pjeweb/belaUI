@@ -118,7 +118,9 @@ test("IPv6 routing add, idempotence, change and removal", () => {
 			String(IPV6_ROUTING_BASE),
 		],
 	]);
-	expect(planIpv6Routing(added.routes, [source]).commands).toEqual([]);
+	expect(planIpv6Routing(added.routes, [source]).commands).toEqual(
+		added.commands.slice(0, 1),
+	);
 	const changed = planIpv6Routing(added.routes, [
 		{ ...source, address: "2001:db8::3" },
 	]);
@@ -153,7 +155,7 @@ test("modem family default and explicit profiles round-trip", () => {
 test("probe brackets IPv6 destinations and accounts for its larger header", async () => {
 	const result = await buildProbeTargets(
 		{
-			interfaces: { wan: { ip: "192.0.2.2" } },
+			interfaces: { wan: { ip: v6 } },
 			streaming: false,
 			relays: { servers: { relay: { addr: v6, bcrp_port: 9000 } } },
 		},

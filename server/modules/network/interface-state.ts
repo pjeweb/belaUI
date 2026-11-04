@@ -49,3 +49,14 @@ export class InterfaceState {
 		return true;
 	}
 }
+
+export function interfaceSourceChanged(
+	previous: NetworkInterface | undefined,
+	next: NetworkInterface,
+) {
+	return (
+		!previous ||
+		previous.ip !== next.ip ||
+		(!next.ip && previous.ipv6 !== next.ipv6)
+	);
+}

@@ -1,4 +1,9 @@
-import { bracketHost } from "../../helpers/ip-addresses.ts";
+import {
+	bracketHost,
+	cachedReceiverAddress,
+} from "../../helpers/ip-addresses.ts";
+import { selectSrtlaAddresses } from "../network/interface-addresses.ts";
+import { getNetworkInterfaces } from "../network/network-interfaces.ts";
 /*
     belaUI - web UI for the BELABOX project
     Copyright (C) 2020-2022 BELABOX project
@@ -187,8 +192,15 @@ async function remoteConnect() {
 		fromCache = dnsRes.fromCache;
 
 		if (fromCache) {
-			const cachedHost =
-				dnsRes.addrs[Math.floor(Math.random() * dnsRes.addrs.length)];
+			const sources = selectSrtlaAddresses(
+				getNetworkInterfaces(),
+				undefined,
+				true,
+			);
+			const cachedHost = cachedReceiverAddress(
+				dnsRes.addrs,
+				sources.length > 0 && sources.every((source) => source.includes(":")),
+			);
 			if (!cachedHost) throw "No cached address";
 
 			host = cachedHost;

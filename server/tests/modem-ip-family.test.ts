@@ -34,3 +34,20 @@ test("sender source file retains IPv4 and writes plain IPv6 fallback addresses",
 	expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
 	expect(stdout).toBe("source file checks passed\n");
 });
+
+test("operator-profile copy preserves the configured IP family", async () => {
+	const fixture = fileURLToPath(
+		new URL("./fixtures/operator-ip-family.ts", import.meta.url),
+	);
+	const child = Bun.spawn([process.execPath, fixture], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [code, stdout, stderr] = await Promise.all([
+		child.exited,
+		new Response(child.stdout).text(),
+		new Response(child.stderr).text(),
+	]);
+	expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+	expect(stdout).toBe("operator profile checks passed\n");
+});

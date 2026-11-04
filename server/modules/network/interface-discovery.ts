@@ -1,3 +1,5 @@
+import { isUla } from "../../helpers/ip-addresses.ts";
+
 export type InterfaceAddress = {
 	family: "inet" | "inet6";
 	address: string;
@@ -51,7 +53,11 @@ export function selectIpv6(addresses: InterfaceAddress[]) {
 				!a.deprecated &&
 				!a.dadfailed,
 		)
-		.sort((a, b) => Number(a.temporary) - Number(b.temporary))[0]?.address;
+		.sort(
+			(a, b) =>
+				Number(isUla(a.address)) - Number(isUla(b.address)) ||
+				Number(a.temporary) - Number(b.temporary),
+		)[0]?.address;
 }
 export function prefixNetmask(prefix: number) {
 	if (prefix === 0) return "0.0.0.0";

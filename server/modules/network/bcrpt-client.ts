@@ -1,4 +1,4 @@
-import { bracketHost } from "../../helpers/ip-addresses.ts";
+import { bracketHost, endpointAddress } from "../../helpers/ip-addresses.ts";
 /*
     belaUI - web UI for the BELABOX project
     Copyright (C) 2020-2022 BELABOX project
@@ -19,6 +19,7 @@ import { bracketHost } from "../../helpers/ip-addresses.ts";
 import { spawn } from "node:child_process";
 import type { EventEmitter } from "node:events";
 import { mkdir, rename, writeFile } from "node:fs/promises";
+import { isIP } from "node:net";
 import { StringDecoder } from "node:string_decoder";
 
 export type ProbeRelays = {
@@ -60,6 +61,7 @@ export async function buildProbeTargets(
 			if (!server.bcrp_port) continue;
 			const result = await resolve(server.addr);
 			for (const ip of result.addrs) {
+				if (![...sources].some((source) => isIP(source) === isIP(ip))) continue;
 				const address = `${bracketHost(ip)}:${server.bcrp_port}`;
 				targets.relayIds[address] = id;
 				targets.servers += `${address}\n`;
@@ -97,7 +99,7 @@ export function parseProbeStats(
 				typeof mtu === "number" &&
 				Number.isFinite(mtu) &&
 				mtu > 0 &&
-				mtu < (source.includes(":") ? 1356 : 1336),
+				mtu < (isIP(endpointAddress(source)) === 6 ? 1356 : 1336),
 		);
 	return { rtts, lowMtu: Boolean(lowMtu) };
 }

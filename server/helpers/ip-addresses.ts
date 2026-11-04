@@ -74,3 +74,18 @@ export function ipv6ToBigInt(address: string): bigint | undefined {
 		0n,
 	);
 }
+
+export function isUla(address: string) {
+	const value = ipv6ToBigInt(address);
+	return value !== undefined && value >> 121n === 126n;
+}
+export function endpointAddress(endpoint: string) {
+	if (endpoint.startsWith("[")) return endpoint.slice(1, endpoint.indexOf("]"));
+	if (isIP(endpoint)) return endpoint;
+	const host = endpoint.slice(0, endpoint.lastIndexOf(":"));
+	return isIP(host) ? host : endpoint;
+}
+export function cachedReceiverAddress(addresses: string[], ipv6Only = false) {
+	const preferred = addresses.filter((a) => isIP(a) === (ipv6Only ? 6 : 4));
+	return preferred[Math.floor(Math.random() * preferred.length)];
+}

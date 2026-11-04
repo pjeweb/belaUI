@@ -45,7 +45,11 @@ import {
 } from "../wifi/wifi-device-list.ts";
 import { wifiUpdateDevices } from "../wifi/wifi-interfaces.ts";
 
-import { InterfaceState, type NetworkInterface } from "./interface-state.ts";
+import {
+	InterfaceState,
+	type NetworkInterface,
+	interfaceSourceChanged,
+} from "./interface-state.ts";
 export type { NetworkInterface } from "./interface-state.ts";
 
 export type NetworkInterfaceMessage = {
@@ -149,11 +153,7 @@ function updateNetif() {
 				};
 
 				// Detect interfaces that are new or with a different address
-				if (
-					!netif[name] ||
-					netif[name].ip !== inetAddr ||
-					netif[name].ipv6 !== ipv6
-				) {
+				if (interfaceSourceChanged(netif[name], newInterfaces[name])) {
 					intsChanged = true;
 				}
 			} catch (err) {

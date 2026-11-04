@@ -5,7 +5,7 @@ import type WebSocket from "ws";
 import type { ConfigParameters } from "../modules/streaming/config-validation.ts";
 
 let active = false;
-let listener: (() => void) | undefined;
+let listener: (() => void | Promise<void>) | undefined;
 let wanAddresses = ["192.0.2.1"];
 let localAddresses: string[] = [];
 const directories = new Set<string>();
@@ -22,7 +22,8 @@ const supervisor = {
 	spawnLoop,
 	stop: mock(async () => {}),
 };
-const setAddresses = mock((_addresses: string[]) => {});
+let publish = async (_addresses: string[]) => {};
+const setAddresses = mock((addresses: string[]) => publish(addresses));
 const reload = mock(() => {});
 const error = mock(() => {});
 const updates = mock(() => {
@@ -55,7 +56,7 @@ mock.module("../modules/network/bcrpt.ts", () => ({
 	getBcrptLowMtu: () => false,
 }));
 mock.module("../modules/network/network-interfaces.ts", () => ({
-	onNetworkInterfacesChange: (callback: () => void) => {
+	onNetworkInterfacesChange: (callback: () => void | Promise<void>) => {
 		listener = callback;
 		return () => {
 			listener = undefined;
@@ -131,6 +132,7 @@ const { start, stop } = await import("../modules/streaming/streamloop.ts");
 const conn = {} as WebSocket;
 beforeEach(() => {
 	wanAddresses = ["192.0.2.1"];
+	publish = async () => {};
 	localAddresses = [];
 	directories.clear();
 	Object.assign(preparation, defaults);
@@ -156,9 +158,10 @@ describe("stream startup integration", () => {
 		expect(setAddresses).toHaveBeenLastCalledWith(localAddresses);
 		expect(spawnLoop).toHaveBeenCalledTimes(2);
 		localAddresses = [];
-		listener?.();
+		await listener?.();
 		expect(setAddresses).toHaveBeenLastCalledWith([]);
-		expect(reload).toHaveBeenCalledTimes(1);
+		// The source publisher now owns signalling after a changed file is written.
+		expect(reload).not.toHaveBeenCalled();
 		expect(active).toBe(true);
 		await stop();
 		expect(listener).toBeUndefined();
@@ -222,4 +225,39 @@ describe("stream startup integration", () => {
 			});
 		}
 	}
+});
+
+test("Stop tolerates source-file cleanup failure and admits the next start", async () => {
+	await start(conn, {});
+	publish = async (addresses) => {
+		if (!addresses.length) throw new Error("source cleanup failed");
+	};
+	await stop();
+	expect(active).toBe(false);
+	publish = async () => {};
+	await start(conn, {});
+	expect(active).toBe(true);
+});
+test("Stop during async source publication prevents late spawning", async () => {
+	let entered!: () => void;
+	let release!: () => void;
+	const ready = new Promise<void>((resolve) => {
+		entered = resolve;
+	});
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	publish = async (addresses) => {
+		if (addresses.length) {
+			entered();
+			await gate;
+		}
+	};
+	const starting = start(conn, {});
+	await ready;
+	await stop();
+	release();
+	await starting;
+	expect(spawnLoop).not.toHaveBeenCalled();
+	expect(active).toBe(false);
 });

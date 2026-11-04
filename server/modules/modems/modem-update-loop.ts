@@ -63,7 +63,7 @@ const modemUpdateInterval = 10_000;
 
 const MODEM_IS_NEW = Symbol("MODEM_IS_NEW");
 
-async function modemGetConfig(
+export async function modemGetConfig(
 	modemInfo: ModemInfo,
 	simInfo: SimInfo,
 ): Promise<ModemConfig | undefined> {
@@ -94,7 +94,7 @@ async function modemGetConfig(
 		return {
 			autoconfig: ci.autoconfig === true,
 			apn: ci.apn,
-			ip_family: "ipv4",
+			ip_family: ci.ip_family ?? "ipv4",
 			username: ci.username,
 			password: ci.password,
 			roaming: ci.roaming,

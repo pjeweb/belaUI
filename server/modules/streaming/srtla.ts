@@ -15,11 +15,15 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import fs from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
-import { normalizeIp } from "../../helpers/ip-addresses.ts";
+import {
+	cachedReceiverAddress,
+	normalizeIp,
+} from "../../helpers/ip-addresses.ts";
 import { logger } from "../../helpers/logger.ts";
 import { updateIpv6Routing } from "../network/ipv6-routing.ts";
+import { SourcePublisher } from "./source-publisher.ts";
 
 import { dnsCacheResolve, dnsCacheValidate } from "../network/dns.ts";
 import { queueUpdateGw } from "../network/gateways.ts";
@@ -46,7 +50,15 @@ export async function resolveSrtla(input: string) {
 	}
 
 	if (fromCache) {
-		const cachedAddr = addrs[Math.floor(Math.random() * addrs.length)];
+		const candidates = selectSrtlaAddresses(
+			getNetworkInterfaces(),
+			undefined,
+			true,
+		);
+		const ipv6Only =
+			candidates.length > 0 && candidates.every((a) => isIP(a) === 6);
+		const cachedAddr = cachedReceiverAddress(addrs, ipv6Only);
+		if (!cachedAddr) throw new Error("No compatible cached receiver address");
 		if (cachedAddr) srtlaAddr = cachedAddr;
 		queueUpdateGw();
 	} else {
@@ -66,36 +78,39 @@ export async function resolveSrtla(input: string) {
 
 let routingRefresh: ReturnType<typeof setInterval> | undefined;
 let requestedAddresses: string[] = [];
-let lastList: string | undefined;
+const publisher = new SourcePublisher({
+	route: (addresses) => {
+		const sources = Object.entries(getNetworkInterfaces()).flatMap(
+			([device, network]) => {
+				const address = addresses.find(
+					(a) =>
+						isIP(a) === 6 &&
+						(a === network.ipv6 ||
+							network.addresses?.some((info) => info.address === a)),
+				);
+				return address ? [{ address, device }] : [];
+			},
+		);
+		return updateIpv6Routing(sources);
+	},
+	write: (list) => writeFile(setup.ips_file, list),
+	signal: () => restartSrtla(),
+	log: (error) => logger.error(error),
+});
 export function setSrtlaIpList(addresses: string[]) {
 	requestedAddresses = addresses;
 	if (addresses.some((a) => isIP(a) === 6) && !routingRefresh) {
 		routingRefresh = setInterval(() => {
-			try {
-				const before = lastList;
-				setSrtlaIpList(requestedAddresses);
-				if (before !== lastList) restartSrtla();
-			} catch (error) {
-				logger.error(error);
-			}
+			void publisher
+				.update(requestedAddresses)
+				.catch((error) => logger.error(error));
 		}, 2000);
 		routingRefresh.unref();
 	} else if (!addresses.some((a) => isIP(a) === 6) && routingRefresh) {
 		clearInterval(routingRefresh);
 		routingRefresh = undefined;
 	}
-
-	const sources = Object.entries(getNetworkInterfaces()).flatMap(
-		([device, network]) =>
-			network.ipv6 && !network.ip && addresses.includes(network.ipv6)
-				? [{ address: network.ipv6, device }]
-				: [],
-	);
-	const routed = updateIpv6Routing(sources);
-	const usable = addresses.filter((a) => isIP(a) !== 6 || routed?.has(a));
-	const list = usable.length ? `${usable.join("\n")}\n` : "";
-	fs.writeFileSync(setup.ips_file, list);
-	lastList = list;
+	return publisher.update(addresses);
 }
 
 export function restartSrtla() {
