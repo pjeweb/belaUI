@@ -19,6 +19,7 @@ import { writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import {
 	cachedReceiverAddress,
+	ipv6Prefix,
 	normalizeIp,
 } from "../../helpers/ip-addresses.ts";
 import { logger } from "../../helpers/logger.ts";
@@ -32,7 +33,7 @@ import { getNetworkInterfaces } from "../network/network-interfaces.ts";
 import { setup } from "../setup.ts";
 import { srtlaSendExec, streamingProcesses } from "./processes.ts";
 
-const receiverIpv6 = new Map<string, boolean>();
+const receiverFamilies = new Map<string, { ipv4: boolean; ipv6: boolean }>();
 export async function resolveSrtla(input: string) {
 	const addr = normalizeIp(input);
 
@@ -53,7 +54,8 @@ export async function resolveSrtla(input: string) {
 		const candidates = selectSrtlaAddresses(
 			getNetworkInterfaces(),
 			undefined,
-			true,
+			addrs.some((a) => isIP(a) === 6),
+			addrs.some((a) => isIP(a) === 4),
 		);
 		const ipv6Only =
 			candidates.length > 0 && candidates.every((a) => isIP(a) === 6);
@@ -68,11 +70,14 @@ export async function resolveSrtla(input: string) {
 		dnsCacheValidate(addr);
 	}
 
-	receiverIpv6.set(
-		srtlaAddr,
-		isIP(srtlaAddr) === 6 ||
-			(isIP(srtlaAddr) === 0 && addrs.some((a) => isIP(a) === 6)),
-	);
+	receiverFamilies.set(srtlaAddr, {
+		ipv4: isIP(srtlaAddr)
+			? isIP(srtlaAddr) === 4
+			: addrs.some((a) => isIP(a) === 4),
+		ipv6: isIP(srtlaAddr)
+			? isIP(srtlaAddr) === 6
+			: addrs.some((a) => isIP(a) === 6),
+	});
 	return srtlaAddr;
 }
 
@@ -88,7 +93,18 @@ const publisher = new SourcePublisher({
 						(a === network.ipv6 ||
 							network.addresses?.some((info) => info.address === a)),
 				);
-				return address ? [{ address, device }] : [];
+				if (!address) return [];
+				const prefixes = [
+					...new Set(
+						(network.addresses ?? [])
+							.filter(
+								(info) =>
+									info.family === "inet6" && !info.tentative && !info.dadfailed,
+							)
+							.map((info) => ipv6Prefix(info.address, info.prefixLength)),
+					),
+				].sort();
+				return [{ address, device, prefixes }];
 			},
 		);
 		return updateIpv6Routing(sources);
@@ -97,7 +113,16 @@ const publisher = new SourcePublisher({
 	signal: () => restartSrtla(),
 	log: (error) => logger.error(error),
 });
+let shuttingDown = false;
+export function shutdownSrtla() {
+	shuttingDown = true;
+	clearInterval(routingRefresh);
+	routingRefresh = undefined;
+	requestedAddresses = [];
+	return publisher.shutdown();
+}
 export function setSrtlaIpList(addresses: string[]) {
+	if (shuttingDown) return publisher.shutdown();
 	requestedAddresses = addresses;
 	if (addresses.some((a) => isIP(a) === 6) && !routingRefresh) {
 		routingRefresh = setInterval(() => {
@@ -121,7 +146,8 @@ export function genSrtlaIpList(receiver = "") {
 	return selectSrtlaAddresses(
 		getNetworkInterfaces(),
 		undefined,
-		receiverIpv6.get(receiver),
+		receiverFamilies.get(receiver)?.ipv6,
+		receiverFamilies.get(receiver)?.ipv4 ?? true,
 	);
 }
 
@@ -129,6 +155,7 @@ export function genSrtalIpListForLocalIpAddress(ipAddress: string) {
 	return selectSrtlaAddresses(
 		getNetworkInterfaces(),
 		ipAddress,
-		receiverIpv6.get(ipAddress),
+		receiverFamilies.get(ipAddress)?.ipv6,
+		receiverFamilies.get(ipAddress)?.ipv4 ?? true,
 	);
 }

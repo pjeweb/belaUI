@@ -119,3 +119,75 @@ test("a failed in-flight file write cannot discard queued Stop cleanup", async (
 	expect(requests).toEqual([[v6], []]);
 	expect(writes).toEqual([""]);
 });
+
+test("identical in-flight refreshes cannot starve IPv4 fallback", async () => {
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	let passes = 0;
+	const f = fixture(async () => {
+		passes++;
+		if (passes === 1) await gate;
+		return new Set();
+	});
+	const starting = f.publisher.update([v4, v6]);
+	for (let n = 0; n < 3; n++) f.publisher.update([v4, v6]);
+	release();
+	await starting;
+	expect(passes).toBe(1);
+	expect(f.writes).toEqual([`${v4}\n`]);
+	await f.publisher.update([v4, v6]);
+	expect(passes).toBe(2);
+});
+test("superseded write is signalled when the final usable list is unchanged", async () => {
+	let entered!: () => void;
+	let release!: () => void;
+	const writing = new Promise<void>((resolve) => {
+		entered = resolve;
+	});
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	let signals = 0;
+	let writes = 0;
+	const publisher = new SourcePublisher({
+		route: async () => new Set(),
+		write: async () => {
+			if (++writes === 1) {
+				entered();
+				await gate;
+			}
+		},
+		signal() {
+			signals++;
+		},
+		log() {},
+	});
+	const first = publisher.update([v4, v6]);
+	await writing;
+	const last = publisher.update([v4]);
+	release();
+	await Promise.all([first, last]);
+	expect(signals).toBe(1);
+});
+test("shutdown rejects late publications while routing drains", async () => {
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const requests: string[][] = [];
+	const f = fixture(async (addresses) => {
+		requests.push(addresses);
+		if (requests.length === 1) await gate;
+		return new Set([v6]);
+	});
+	const starting = f.publisher.update([v6]);
+	const stopping = f.publisher.shutdown();
+	f.publisher.update([v6]);
+	release();
+	await Promise.all([starting, stopping]);
+	await f.publisher.update([v6]);
+	expect(requests).toEqual([[v6], []]);
+	expect(f.writes).toEqual([""]);
+});

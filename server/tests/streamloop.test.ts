@@ -100,6 +100,7 @@ mock.module("../modules/streaming/srtla.ts", () => ({
 	genSrtalIpListForLocalIpAddress: () => localAddresses,
 	resolveSrtla: (address: string) => preparation.resolveSrtla(address),
 	setSrtlaIpList: setAddresses,
+	shutdownSrtla: () => setAddresses([]),
 	restartSrtla: reload,
 }));
 mock.module("../modules/streaming/streaming.ts", () => ({
@@ -259,5 +260,28 @@ test("Stop during async source publication prevents late spawning", async () => 
 	release();
 	await starting;
 	expect(spawnLoop).not.toHaveBeenCalled();
+	expect(active).toBe(false);
+});
+
+test("shutdown detaches discovery and blocks new stream producers before cleanup", async () => {
+	const modulePath = "../modules/streaming/streamloop.ts";
+	const runtime: typeof import("../modules/streaming/streamloop.ts") =
+		await import(`${modulePath}?shutdown-regression`);
+	await runtime.start(conn, {});
+	expect(listener).toBeDefined();
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	publish = async (addresses) => {
+		if (!addresses.length) await gate;
+	};
+	const stopping = runtime.shutdown();
+	expect(listener).toBeUndefined();
+	const count = spawnLoop.mock.calls.length;
+	await runtime.start(conn, {});
+	expect(spawnLoop.mock.calls).toHaveLength(count);
+	release();
+	await stopping;
 	expect(active).toBe(false);
 });

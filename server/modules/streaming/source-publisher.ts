@@ -1,6 +1,7 @@
 /** Coalesces handovers and refreshes; a superseded update never publishes stale sources. */
 export class SourcePublisher {
 	private latest: string[] = [];
+	private closed = false;
 	private revision = 0;
 	private running?: Promise<void>;
 	private lastList?: string;
@@ -12,7 +13,21 @@ export class SourcePublisher {
 			log(error: unknown): void;
 		},
 	) {}
+	shutdown() {
+		this.closed = true;
+		return this.enqueue([]);
+	}
 	update(addresses: string[]) {
+		if (this.closed) return this.running ?? Promise.resolve();
+		return this.enqueue(addresses);
+	}
+	private enqueue(addresses: string[]) {
+		if (
+			this.running &&
+			addresses.length === this.latest.length &&
+			addresses.every((address, index) => address === this.latest[index])
+		)
+			return this.running;
 		this.latest = [...addresses];
 		this.revision++;
 		if (!this.running) {
@@ -46,7 +61,7 @@ export class SourcePublisher {
 					}
 					throw error;
 				}
-				this.lastList = list;
+				this.lastList = applied === this.revision ? list : undefined;
 				if (applied === this.revision) this.io.signal();
 			}
 		}

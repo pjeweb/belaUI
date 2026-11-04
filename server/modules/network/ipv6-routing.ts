@@ -82,7 +82,9 @@ export class Ipv6Router {
 		}
 		this.recovered = true;
 	}
-	async update(sources: Array<{ address: string; device: string }>) {
+	async update(
+		sources: Array<{ address: string; device: string; prefixes?: string[] }>,
+	) {
 		if (!sources.length && !this.current.length && !this.pendingCleanup.length)
 			return new Set<string>();
 		if (sources.length) await this.recover();
@@ -127,10 +129,17 @@ export class Ipv6Router {
 			}
 		}
 		for (const old of this.current)
-			if (!plan.routes.includes(old) && !(await this.remove(old)))
+			if (!installed.includes(old) && !(await this.remove(old)))
 				this.pendingCleanup.push(old);
 		this.current = installed;
-		return new Set(installed.map((s) => s.address));
+		return new Set(
+			installed
+				.filter(
+					(source) =>
+						!this.pendingCleanup.some((p) => p.address === source.address),
+				)
+				.map((s) => s.address),
+		);
 	}
 }
 const router = new Ipv6Router(
@@ -138,5 +147,5 @@ const router = new Ipv6Router(
 	(error) => logger.error(error),
 );
 export const updateIpv6Routing = (
-	sources: Array<{ address: string; device: string }>,
+	sources: Array<{ address: string; device: string; prefixes?: string[] }>,
 ) => router.update(sources);

@@ -115,7 +115,7 @@ for (const launchFailure of [false, true])
 		await lifecycle.stop();
 	});
 
-test("IPv6 changes do not reload an IPv4 interface", async () => {
+test("IPv6 notifications preserve unchanged IPv4 publication without reload", async () => {
 	const { interfaceSourceChanged } = await import(
 		"../modules/network/interface-state.ts"
 	);
@@ -129,7 +129,7 @@ test("IPv6 changes do not reload an IPv4 interface", async () => {
 	};
 	expect(
 		interfaceSourceChanged(previous, { ...previous, ipv6: "2001:db8::3" }),
-	).toBe(false);
+	).toBe(true);
 	expect(
 		interfaceSourceChanged(
 			{ ...previous, ip: undefined },
@@ -139,6 +139,27 @@ test("IPv6 changes do not reload an IPv4 interface", async () => {
 	expect(interfaceSourceChanged(previous, { ...previous, ip: undefined })).toBe(
 		true,
 	);
+	const { SourcePublisher } = await import(
+		"../modules/streaming/source-publisher.ts"
+	);
+	let writes = 0;
+	let signals = 0;
+	const publisher = new SourcePublisher({
+		route: async () => new Set(),
+		write: async () => {
+			writes++;
+		},
+		signal: () => {
+			signals++;
+		},
+		log() {},
+	});
+	await publisher.update(selectSrtlaAddresses({ wan: previous }));
+	await publisher.update(
+		selectSrtlaAddresses({ wan: { ...previous, ipv6: "2001:db8::3" } }),
+	);
+	expect(writes).toBe(1);
+	expect(signals).toBe(1);
 });
 test("cached receivers prefer A unless every selected source needs IPv6", async () => {
 	const { cachedReceiverAddress } = await import("../helpers/ip-addresses.ts");
@@ -147,4 +168,48 @@ test("cached receivers prefer A unless every selected source needs IPv6", async 
 		"2001:db8::1",
 	);
 	expect(cachedReceiverAddress(["2001:db8::1"])).toBeUndefined();
+});
+
+test("dual-stack uplinks use IPv6 only for an IPv6-only receiver", () => {
+	const networks = {
+		wan: { ip: "192.0.2.2", ipv6: "2001:db8::2", enabled: true, error: 0 },
+	};
+	expect(selectSrtlaAddresses(networks, undefined, true, false)).toEqual([
+		"2001:db8::2",
+	]);
+	expect(selectSrtlaAddresses(networks, undefined, true, true)).toEqual([
+		"192.0.2.2",
+	]);
+	expect(selectSrtlaAddresses(networks, undefined, false, true)).toEqual([
+		"192.0.2.2",
+	]);
+});
+test("dual-stack IPv6 address and prefix changes notify source selection", async () => {
+	const { interfaceSourceChanged } = await import(
+		"../modules/network/interface-state.ts"
+	);
+	const old = {
+		ip: "192.0.2.2",
+		ipv6: "2001:db8::2",
+		addresses,
+		enabled: true,
+		error: 0,
+		tp: 0,
+		txb: 0,
+	};
+	expect(interfaceSourceChanged(old, { ...old, ipv6: "2001:db8::3" })).toBe(
+		true,
+	);
+	expect(
+		interfaceSourceChanged(old, {
+			...old,
+			addresses: addresses.map((a) => ({ ...a, prefixLength: 80 })),
+		}),
+	).toBe(true);
+	expect(
+		interfaceSourceChanged(old, {
+			...old,
+			addresses: addresses.map((a) => ({ ...a, deprecated: true })),
+		}),
+	).toBe(true);
 });

@@ -35,6 +35,7 @@ export function selectSrtlaAddresses(
 	interfaces: Record<string, AddressInterface>,
 	localTarget?: string,
 	receiverHasIpv6 = false,
+	receiverHasIpv4 = true,
 ) {
 	const addresses = new Set<string>();
 	for (const network of Object.values(interfaces)) {
@@ -49,7 +50,7 @@ export function selectSrtlaAddresses(
 			continue;
 		}
 		const source =
-			network.ip ??
+			(receiverHasIpv4 ? network.ip : undefined) ??
 			(receiverHasIpv6 && network.ipv6 && !isUla(network.ipv6)
 				? network.ipv6
 				: undefined);

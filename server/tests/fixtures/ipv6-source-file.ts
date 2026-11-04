@@ -1,11 +1,17 @@
 import { mock } from "bun:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { isIP } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	type InterfaceAddress,
+	interfaceAddresses,
+} from "../../modules/network/interface-discovery.ts";
 const directory = mkdtempSync(join(tmpdir(), "uplink-test-"));
 const file = join(directory, "sources");
 let failRouting = false;
+let routedPrefixes: string[] = [];
 let signals = 0;
 const random = Math.random;
 Math.random = () => 0;
@@ -14,7 +20,10 @@ mock.module("../../helpers/logger.ts", () => ({
 }));
 mock.module("../../modules/setup.ts", () => ({ setup: { ips_file: file } }));
 mock.module("../../modules/network/ipv6-routing.ts", () => ({
-	updateIpv6Routing: async (sources: Array<{ address: string }>) => {
+	updateIpv6Routing: async (
+		sources: Array<{ address: string; prefixes?: string[] }>,
+	) => {
+		routedPrefixes = sources.flatMap((source) => source.prefixes ?? []);
 		if (failRouting) throw new Error("route query failed");
 		return new Set(sources.map((s) => s.address));
 	},
@@ -22,7 +31,7 @@ mock.module("../../modules/network/ipv6-routing.ts", () => ({
 let cached = false;
 mock.module("../../modules/network/dns.ts", () => ({
 	dnsCacheResolve: async (address: string) => ({
-		addrs: cached ? ["2001:db8::1", "192.0.2.1"] : [address],
+		addrs: cached || !isIP(address) ? ["2001:db8::1", "192.0.2.1"] : [address],
 		fromCache: cached,
 	}),
 	dnsCacheValidate: () => {},
@@ -40,25 +49,66 @@ mock.module("../../modules/streaming/processes.ts", () => ({
 }));
 const interfaces: Record<
 	string,
-	{ ip?: string; ipv6: string; enabled: boolean; error: number }
+	{
+		ip?: string;
+		ipv6: string;
+		addresses?: InterfaceAddress[];
+		enabled: boolean;
+		error: number;
+	}
 > = {
-	dual: { ip: "192.0.2.2", ipv6: "2001:db8::2", enabled: true, error: 0 },
-	v6: { ipv6: "2001:db8::3", enabled: true, error: 0 },
+	dual: {
+		ip: "192.0.2.2",
+		ipv6: "2001:db8::2",
+		enabled: true,
+		error: 0,
+		addresses: interfaceAddresses({
+			ifname: "dual",
+			flags: [],
+			addr_info: [
+				{
+					family: "inet6",
+					local: "2001:db8::2",
+					prefixlen: 64,
+					scope: "global",
+				},
+			],
+		}),
+	},
+	v6: {
+		ipv6: "2001:db8::3",
+		enabled: true,
+		error: 0,
+		addresses: interfaceAddresses({
+			ifname: "v6",
+			flags: [],
+			addr_info: [
+				{
+					family: "inet6",
+					local: "2001:db8::3",
+					prefixlen: 64,
+					scope: "global",
+				},
+			],
+		}),
+	},
 };
 mock.module("../../modules/network/network-interfaces.ts", () => ({
 	getNetworkInterfaces: () => interfaces,
 }));
-const { resolveSrtla, genSrtlaIpList, setSrtlaIpList } = await import(
-	"../../modules/streaming/srtla.ts"
-);
+const { resolveSrtla, genSrtlaIpList, setSrtlaIpList, shutdownSrtla } =
+	await import("../../modules/streaming/srtla.ts");
 try {
 	const ipv4 = await resolveSrtla("192.0.2.1");
 	await setSrtlaIpList(genSrtlaIpList(ipv4));
 	assert.equal(readFileSync(file, "utf8"), "192.0.2.2\n");
-	const ipv6 = await resolveSrtla("[2001:db8::1]");
-	assert.equal(ipv6, "2001:db8::1");
+	const ipv6Only = await resolveSrtla("[2001:db8::1]");
+	assert.equal(ipv6Only, "2001:db8::1");
+	assert.deepEqual(genSrtlaIpList(ipv6Only), ["2001:db8::2", "2001:db8::3"]);
+	const ipv6 = await resolveSrtla("receiver.invalid");
 	await setSrtlaIpList(genSrtlaIpList(ipv6));
 	assert.equal(readFileSync(file, "utf8"), "192.0.2.2\n2001:db8::3\n");
+	assert.deepEqual(routedPrefixes, ["2001:db8:0:0:0:0:0:0/64"]);
 	const before = signals;
 	await setSrtlaIpList(genSrtlaIpList(ipv6));
 	assert.equal(signals, before);
@@ -77,6 +127,9 @@ try {
 	interfaces.dual.ip = undefined;
 	assert.equal(await resolveSrtla("receiver.invalid"), "2001:db8::1");
 	await setSrtlaIpList([]);
+	assert.equal(readFileSync(file, "utf8"), "");
+	await shutdownSrtla();
+	await setSrtlaIpList(["2001:db8::2"]);
 	assert.equal(readFileSync(file, "utf8"), "");
 } finally {
 	Math.random = random;

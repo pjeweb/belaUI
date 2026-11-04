@@ -19,7 +19,6 @@ import { checkExecPath } from "./helpers/exec.ts";
 import killall from "./helpers/killall.ts";
 import { logger } from "./helpers/logger.ts";
 import { initShutdown } from "./helpers/shutdown.ts";
-import { setSrtlaIpList } from "./modules/streaming/srtla.ts";
 
 import { loadConfig } from "./modules/config.ts";
 import { initRTMPIngestStats } from "./modules/ingest/rtmp.ts";
@@ -37,6 +36,7 @@ import { initPipelines } from "./modules/streaming/pipelines.ts";
 import {
 	belacoderExec,
 	initAutostart,
+	shutdown,
 	srtlaSendExec,
 } from "./modules/streaming/streamloop.ts";
 import { initRevisions } from "./modules/system/revisions.ts";
@@ -57,10 +57,7 @@ checkExecPath(belacoderExec);
 checkExecPath(srtlaSendExec);
 
 loadConfig();
-initShutdown(
-	() => setSrtlaIpList([]),
-	(error) => logger.error(error),
-);
+initShutdown(shutdown, (error) => logger.error(error));
 
 initRemote();
 initPipelines();

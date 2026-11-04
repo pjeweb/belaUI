@@ -132,3 +132,80 @@ test("routing imports install no signal or exit handlers", async () => {
 		["SIGINT", "SIGTERM", "exit"].map((name) => process.listenerCount(name)),
 	).toEqual(before);
 });
+
+test("gateway cleanup conflicts retain ownership until Stop removes every table", async () => {
+	let gateway = "2001:db8::1";
+	let fail = false;
+	const rules = new Set<number>();
+	const tables = new Set<number>();
+	const router = new Ipv6Router(async (args) => {
+		if (args[0] === "-j")
+			return JSON.stringify(
+				args.includes("rule") ? [] : [{ dev: "wan0", gateway }],
+			);
+		const table = Number(args.at(-1));
+		if (args.includes("add")) rules.add(table);
+		if (args.includes("replace")) tables.add(table);
+		if (args.includes("del")) {
+			if (fail) throw new Error("permission denied");
+			rules.delete(table);
+		}
+		if (args.includes("flush")) {
+			if (fail) throw new Error("permission denied");
+			tables.delete(table);
+		}
+		return "";
+	});
+	await router.update([a]);
+	gateway = "2001:db8::3";
+	fail = true;
+	await router.update([a]);
+	await router.update([a]);
+	fail = false;
+	await router.update([]);
+	expect(rules.size).toBe(0);
+	expect(tables.size).toBe(0);
+});
+test("policy tables include connected prefixes before the gateway default", async () => {
+	const { planIpv6Routing } = await import(
+		"../modules/network/ipv6-routing-plan.ts"
+	);
+	const plan = planIpv6Routing(
+		[],
+		[{ ...a, gateway: "2001:db8::1", prefixes: ["2001:db8::/64"] }],
+	);
+	expect(plan.commands[0]).toEqual([
+		"-6",
+		"route",
+		"replace",
+		"2001:db8::/64",
+		"dev",
+		"wan0",
+		"table",
+		"20000",
+	]);
+	expect(plan.commands[1]?.[3]).toBe("default");
+	expect(plan.commands.at(-1)?.[1]).toBe("rule");
+});
+
+test("connected policy prefixes are replaced when the interface prefix changes", async () => {
+	const { planIpv6Routing } = await import(
+		"../modules/network/ipv6-routing-plan.ts"
+	);
+	const old = planIpv6Routing(
+		[],
+		[{ ...a, gateway: "2001:db8::1", prefixes: ["2001:db8::/64"] }],
+	);
+	const changed = planIpv6Routing(old.routes, [
+		{ ...a, gateway: "2001:db8::1", prefixes: ["2001:db8::/80"] },
+	]);
+	expect(changed.routes[0]?.table).not.toBe(old.routes[0]?.table);
+	expect(changed.commands[0]?.[3]).toBe("2001:db8::/80");
+	expect(changed.commands.at(-1)).toEqual([
+		"-6",
+		"route",
+		"flush",
+		"table",
+		"20000",
+	]);
+});

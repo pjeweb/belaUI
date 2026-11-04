@@ -51,6 +51,7 @@ import {
 	genSrtlaIpList,
 	resolveSrtla,
 	setSrtlaIpList,
+	shutdownSrtla,
 } from "./srtla.ts";
 import { StreamLifecycle } from "./start-lifecycle.ts";
 import {
@@ -61,6 +62,7 @@ import {
 	validateConfig,
 } from "./streaming.ts";
 
+let shuttingDown = false;
 let removeNetworkListener: (() => void) | undefined;
 async function stopProcesses() {
 	removeNetworkListener?.();
@@ -230,8 +232,17 @@ const lifecycle = new StreamLifecycle<
 	},
 });
 
+export async function shutdown() {
+	shuttingDown = true;
+	removeNetworkListener?.();
+	removeNetworkListener = undefined;
+	const stopping = lifecycle.stop();
+	const draining = shutdownSrtla();
+	await Promise.all([stopping, draining]);
+}
+
 export async function start(conn: WebSocket, params: ConfigParameters) {
-	if (getIsStreaming() || isUpdating()) {
+	if (shuttingDown || getIsStreaming() || isUpdating()) {
 		sendStatus(conn);
 		return;
 	}
@@ -264,6 +275,7 @@ export function setAutostart(value: unknown) {
 
 export function initAutostart() {
 	bootAutostart(getConfig().autostart === true, () => {
+		if (shuttingDown) return;
 		void lifecycle
 			.start({ params: { ...getConfig() } }, true)
 			.catch((error) => logger.error(`Autostart failed: ${error}`));

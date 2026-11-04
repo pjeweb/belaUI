@@ -57,6 +57,8 @@ export function interfaceSourceChanged(
 	return (
 		!previous ||
 		previous.ip !== next.ip ||
-		(!next.ip && previous.ipv6 !== next.ipv6)
+		previous.ipv6 !== next.ipv6 ||
+		JSON.stringify(previous.addresses?.filter((a) => a.family === "inet6")) !==
+			JSON.stringify(next.addresses?.filter((a) => a.family === "inet6"))
 	);
 }

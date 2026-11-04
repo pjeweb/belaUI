@@ -89,3 +89,20 @@ export function cachedReceiverAddress(addresses: string[], ipv6Only = false) {
 	const preferred = addresses.filter((a) => isIP(a) === (ipv6Only ? 6 : 4));
 	return preferred[Math.floor(Math.random() * preferred.length)];
 }
+
+export function ipv6Prefix(address: string, prefixLength: number) {
+	const value = ipv6ToBigInt(address);
+	if (
+		value === undefined ||
+		!Number.isInteger(prefixLength) ||
+		prefixLength < 0 ||
+		prefixLength > 128
+	)
+		throw new Error("Invalid IPv6 prefix");
+	const network =
+		(value >> BigInt(128 - prefixLength)) << BigInt(128 - prefixLength);
+	const words = Array.from({ length: 8 }, (_, index) =>
+		((network >> BigInt((7 - index) * 16)) & 65535n).toString(16),
+	);
+	return `${words.join(":")}/${prefixLength}`;
+}

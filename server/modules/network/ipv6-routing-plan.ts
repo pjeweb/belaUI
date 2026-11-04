@@ -8,6 +8,7 @@ export type SourceRoute = {
 	address: string;
 	device: string;
 	gateway?: string;
+	prefixes?: string[];
 	table: number;
 };
 export type DesiredSource = Omit<SourceRoute, "table">;
@@ -17,7 +18,17 @@ function valid(source: DesiredSource) {
 		isIP(source.address) === 6 &&
 		!source.address.includes("%") &&
 		/^[a-zA-Z0-9_.:-]+$/.test(source.device) &&
-		(!source.gateway || isIP(source.gateway) === 6)
+		(!source.gateway || isIP(source.gateway) === 6) &&
+		(source.prefixes ?? []).every((prefix) => {
+			const [address, length] = prefix.split("/");
+			return (
+				!!address &&
+				isIP(address) === 6 &&
+				length !== undefined &&
+				/^\d+$/.test(length) &&
+				Number(length) <= 128
+			);
+		})
 	);
 }
 export function removeSourceRoute(source: SourceRoute) {
@@ -50,7 +61,9 @@ export function planIpv6Routing(
 			(r) =>
 				r.address === source.address &&
 				r.device === source.device &&
-				r.gateway === source.gateway,
+				r.gateway === source.gateway &&
+				JSON.stringify(r.prefixes ?? []) ===
+					JSON.stringify(source.prefixes ?? []),
 		);
 
 		let table = old?.table ?? IPV6_ROUTING_BASE;
@@ -60,6 +73,17 @@ export function planIpv6Routing(
 		used.add(table);
 		const route = old ?? { ...source, table };
 		routes.push(route);
+		for (const prefix of source.prefixes ?? [])
+			commands.push([
+				"-6",
+				"route",
+				"replace",
+				prefix,
+				"dev",
+				source.device,
+				"table",
+				String(table),
+			]);
 		commands.push([
 			"-6",
 			"route",

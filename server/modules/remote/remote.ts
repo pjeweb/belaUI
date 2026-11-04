@@ -195,7 +195,8 @@ async function remoteConnect() {
 			const sources = selectSrtlaAddresses(
 				getNetworkInterfaces(),
 				undefined,
-				true,
+				dnsRes.addrs.some((a) => a.includes(":")),
+				dnsRes.addrs.some((a) => !a.includes(":")),
 			);
 			const cachedHost = cachedReceiverAddress(
 				dnsRes.addrs,
