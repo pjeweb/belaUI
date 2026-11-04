@@ -49,6 +49,7 @@ import { extractMessage } from "../../helpers/types.ts";
 import { getConfig, saveConfig } from "../config.ts";
 import { dnsCacheResolve, dnsCacheValidate } from "../network/dns.ts";
 import { queueUpdateGw } from "../network/gateways.ts";
+import { getNetworkInterfaces } from "../network/network-interfaces.ts";
 import { setup } from "../setup.ts";
 import { addAuthedSocket } from "../ui/auth.ts";
 import { type StatusResponseMessage, sendInitialStatus } from "../ui/status.ts";
@@ -195,7 +196,14 @@ export async function remoteConnect(
 		freshDns = dnsRes.fresh ?? !fromCache;
 
 		if (fromCache) {
-			const cachedHost = cachedReceiverAddress(dnsRes.addrs);
+			// A bonding toggle does not disable remote connectivity.
+			const uplinks = Object.values(getNetworkInterfaces()).filter(
+				(network) => !network.error,
+			);
+			const ipv6Only =
+				!uplinks.some((network) => network.ip) &&
+				uplinks.some((network) => network.ipv6);
+			const cachedHost = cachedReceiverAddress(dnsRes.addrs, ipv6Only);
 			if (!cachedHost) throw "No cached address";
 
 			host = cachedHost;

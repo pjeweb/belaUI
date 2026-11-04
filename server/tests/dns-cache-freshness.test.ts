@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
-for (const [name, fixture, message] of [
+for (const [name, fixture, message, argument] of [
 	[
 		"mixed fresh and cached DNS answers retain fresh A records",
 		"dns-mixed-cache.ts",
@@ -16,12 +16,19 @@ for (const [name, fixture, message] of [
 		"remote-cache.ts",
 		"remote cache checks passed",
 	],
+	[
+		"remote cached dual-family answers choose IPv6 on IPv6-only uplinks",
+		"remote-cache.ts",
+		"remote family checks passed",
+		"--ipv6-only",
+	],
 ])
 	test(name ?? "cache regression", async () => {
 		const child = Bun.spawn(
 			[
 				process.execPath,
 				fileURLToPath(new URL(`./fixtures/${fixture}`, import.meta.url)),
+				...(argument ? [argument] : []),
 			],
 			{ stdout: "pipe", stderr: "pipe" },
 		);
