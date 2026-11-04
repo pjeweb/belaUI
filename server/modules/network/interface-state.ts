@@ -1,4 +1,8 @@
+import type { InterfaceAddress } from "./interface-discovery.ts";
+
 export type NetworkInterface = {
+	ipv6?: string;
+	addresses?: InterfaceAddress[];
 	ip?: string;
 	netmask?: string;
 	tp: number;

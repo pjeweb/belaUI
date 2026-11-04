@@ -67,12 +67,13 @@ async function stopProcesses() {
 	removeNetworkListener?.();
 	removeNetworkListener = undefined;
 	await supervisor.stop();
+	setSrtlaIpList([]);
 }
 
 function pathsFor(address: string) {
 	return isLocalIp(address)
 		? genSrtalIpListForLocalIpAddress(address)
-		: genSrtlaIpList();
+		: genSrtlaIpList(address);
 }
 
 type StartRequest = { params: unknown; conn?: WebSocket; senderId?: string };

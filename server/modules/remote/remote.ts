@@ -1,3 +1,4 @@
+import { bracketHost } from "../../helpers/ip-addresses.ts";
 /*
     belaUI - web UI for the BELABOX project
     Copyright (C) 2020-2022 BELABOX project
@@ -200,7 +201,9 @@ async function remoteConnect() {
 
 	logger.info("remote: trying to connect");
 
-	const remoteWsUrl = new URL(`${remoteEndpointProtocol}://${host}`);
+	const remoteWsUrl = new URL(
+		`${remoteEndpointProtocol}://${bracketHost(host)}`,
+	);
 	remoteWsUrl.pathname = remoteEndpointPath;
 
 	remoteStatusHandled = false;

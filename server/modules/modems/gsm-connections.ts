@@ -21,8 +21,10 @@ import {
 	nmcliParseSep,
 } from "../network/network-manager.ts";
 import { setup } from "../setup.ts";
+import { type ModemIpFamily, modemIpFamily } from "./ip-family.ts";
 
 type GsmConnection = {
+	ip_family?: ModemIpFamily;
 	state: string;
 	uuid: string;
 	deviceId: string;
@@ -51,6 +53,8 @@ const gsmConnectionFields = [
 	"gsm.password",
 	"gsm.home-only",
 	"gsm.network-id",
+	"ipv4.method",
+	"ipv6.method",
 ] as const;
 
 // Global variable, to allow fetching once in updateModems() and reuse in registerModem()
@@ -86,7 +90,8 @@ async function readGsmConnections() {
 			password: connInfo[5],
 			roaming: connInfo[6] === "no",
 			network: connInfo[7],
-			autoconfig: setup.has_gsm_autoconfig ? connInfo[8] === "yes" : undefined,
+			ip_family: modemIpFamily(connInfo[8], connInfo[9]),
+			autoconfig: setup.has_gsm_autoconfig ? connInfo[10] === "yes" : undefined,
 		};
 
 		byUuid[uuid] = conn;

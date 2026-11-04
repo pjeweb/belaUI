@@ -22,6 +22,8 @@ export const NETIF_ERR_HOTSPOT = 0x02;
 
 type AddressInterface = {
 	ip?: string;
+	ipv6?: string;
+	addresses?: import("./interface-discovery.ts").InterfaceAddress[];
 	netmask?: string;
 	enabled: boolean;
 	error: number;
@@ -30,19 +32,28 @@ type AddressInterface = {
 export function selectSrtlaAddresses(
 	interfaces: Record<string, AddressInterface>,
 	localTarget?: string,
+	receiverHasIpv6 = false,
 ) {
 	const addresses = new Set<string>();
 	for (const network of Object.values(interfaces)) {
-		if (!network.ip) continue;
+		const source = network.ip ?? (receiverHasIpv6 ? network.ipv6 : undefined);
+		if (!source) continue;
 		if (localTarget) {
 			// Hotspot interfaces are excluded from WAN bonding, but can reach local receivers.
 			if (
 				!(network.error & NETIF_ERR_DUPIPV4) &&
-				network.netmask &&
-				isSameSubnet(localTarget, network.ip, network.netmask)
+				((network.ip &&
+					network.netmask &&
+					isSameSubnet(localTarget, network.ip, network.netmask)) ||
+					(!network.ip &&
+						network.addresses?.some(
+							(a) =>
+								a.address === source &&
+								isSameSubnet(localTarget, source, String(a.prefixLength)),
+						)))
 			)
-				addresses.add(network.ip);
-		} else if (network.enabled && !network.error) addresses.add(network.ip);
+				addresses.add(source);
+		} else if (network.enabled && !network.error) addresses.add(source);
 	}
 	return [...addresses];
 }

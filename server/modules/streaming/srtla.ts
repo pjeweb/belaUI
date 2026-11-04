@@ -16,6 +16,10 @@
 */
 
 import fs from "node:fs";
+import { isIP } from "node:net";
+import { normalizeIp } from "../../helpers/ip-addresses.ts";
+import { logger } from "../../helpers/logger.ts";
+import { updateIpv6Routing } from "../network/ipv6-routing.ts";
 
 import { dnsCacheResolve, dnsCacheValidate } from "../network/dns.ts";
 import { queueUpdateGw } from "../network/gateways.ts";
@@ -24,13 +28,16 @@ import { getNetworkInterfaces } from "../network/network-interfaces.ts";
 import { setup } from "../setup.ts";
 import { srtlaSendExec, streamingProcesses } from "./processes.ts";
 
-export async function resolveSrtla(addr: string) {
+const receiverIpv6 = new Map<string, boolean>();
+export async function resolveSrtla(input: string) {
+	const addr = normalizeIp(input);
+
 	let srtlaAddr = addr;
 
 	let addrs: string[] | undefined;
 	let fromCache: boolean | undefined;
 	try {
-		const res = await dnsCacheResolve(addr, "a");
+		const res = await dnsCacheResolve(addr);
 		addrs = res.addrs;
 		fromCache = res.fromCache;
 	} catch (err) {
@@ -49,22 +56,64 @@ export async function resolveSrtla(addr: string) {
 		dnsCacheValidate(addr);
 	}
 
+	receiverIpv6.set(
+		srtlaAddr,
+		isIP(srtlaAddr) === 6 ||
+			(isIP(srtlaAddr) === 0 && addrs.some((a) => isIP(a) === 6)),
+	);
 	return srtlaAddr;
 }
 
+let routingRefresh: ReturnType<typeof setInterval> | undefined;
+let requestedAddresses: string[] = [];
+let lastList: string | undefined;
 export function setSrtlaIpList(addresses: string[]) {
-	const list = addresses.length ? `${addresses.join("\n")}\n` : "";
+	requestedAddresses = addresses;
+	if (addresses.some((a) => isIP(a) === 6) && !routingRefresh) {
+		routingRefresh = setInterval(() => {
+			try {
+				const before = lastList;
+				setSrtlaIpList(requestedAddresses);
+				if (before !== lastList) restartSrtla();
+			} catch (error) {
+				logger.error(error);
+			}
+		}, 2000);
+		routingRefresh.unref();
+	} else if (!addresses.some((a) => isIP(a) === 6) && routingRefresh) {
+		clearInterval(routingRefresh);
+		routingRefresh = undefined;
+	}
+
+	const sources = Object.entries(getNetworkInterfaces()).flatMap(
+		([device, network]) =>
+			network.ipv6 && !network.ip && addresses.includes(network.ipv6)
+				? [{ address: network.ipv6, device }]
+				: [],
+	);
+	const routed = updateIpv6Routing(sources);
+	const usable = addresses.filter((a) => isIP(a) !== 6 || routed?.has(a));
+	const list = usable.length ? `${usable.join("\n")}\n` : "";
 	fs.writeFileSync(setup.ips_file, list);
+	lastList = list;
 }
 
 export function restartSrtla() {
 	streamingProcesses.signal(srtlaSendExec, "SIGHUP");
 }
 
-export function genSrtlaIpList() {
-	return selectSrtlaAddresses(getNetworkInterfaces());
+export function genSrtlaIpList(receiver = "") {
+	return selectSrtlaAddresses(
+		getNetworkInterfaces(),
+		undefined,
+		receiverIpv6.get(receiver),
+	);
 }
 
 export function genSrtalIpListForLocalIpAddress(ipAddress: string) {
-	return selectSrtlaAddresses(getNetworkInterfaces(), ipAddress);
+	return selectSrtlaAddresses(
+		getNetworkInterfaces(),
+		ipAddress,
+		receiverIpv6.get(ipAddress),
+	);
 }

@@ -15,8 +15,14 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-/* Network interface list */
 import { exec } from "node:child_process";
+/* Network interface list */
+import {
+	type IpInterface,
+	interfaceAddresses,
+	prefixNetmask,
+	selectIpv6,
+} from "./interface-discovery.ts";
 
 import type WebSocket from "ws";
 
@@ -80,9 +86,9 @@ export function initNetworkInterfaceMonitoring() {
 
 function updateNetif() {
 	const poll = interfaceState.beginPoll();
-	exec("ifconfig", (error, stdout) => {
+	exec("ip -j -s addr", (error, stdout) => {
 		if (error) {
-			logger.error(`Error getting ifconfig: ${error.message}`);
+			logger.error(`Error getting interface addresses: ${error.message}`);
 			return;
 		}
 
@@ -91,41 +97,38 @@ function updateNetif() {
 		let intsChanged = false;
 		const newInterfaces: Record<string, NetworkInterface> = Object.create(null);
 
-		wifiDeviceListStartUpdate();
+		let interfaces: IpInterface[];
+		try {
+			interfaces = JSON.parse(stdout);
+		} catch (error) {
+			logger.error(error);
+			return;
+		}
 
-		const interfaces = stdout.split("\n\n");
+		wifiDeviceListStartUpdate();
 
 		for (const int of interfaces) {
 			try {
-				const name = int.split(":")[0] ?? "";
+				const name = int.ifname;
 
 				if (name === "lo" || name.match("^docker") || name.match("^l4tbr"))
 					continue;
 
-				const inetAddrMatch = int.match(/inet (\d+\.\d+\.\d+\.\d+)/);
-				const inetAddr = inetAddrMatch?.[1];
-
-				const netmaskMatch = int.match(/netmask (\d+\.\d+\.\d+\.\d+)/);
-				const netmask = netmaskMatch?.[1];
-
-				const flags = (int.match(/flags=\d+<([A-Z,]+)>/)?.[1] ?? "").split(",");
-				const isRunning = flags.includes("RUNNING");
-
-				// update the list of WiFi devices
-				if (name?.match("^wlan")) {
-					const hwAddr = int.match(/ether ([0-9a-f:]+)/);
-					if (hwAddr?.[1]) {
-						wifiDeviceListAdd(name, hwAddr[1], isRunning ? inetAddr : null);
-					}
+				const addresses = interfaceAddresses(int);
+				const ipv4 = addresses.find((a) => a.family === "inet");
+				const inetAddr = ipv4?.address;
+				const ipv6 = selectIpv6(addresses);
+				const netmask = ipv4 ? prefixNetmask(ipv4.prefixLength) : undefined;
+				const isRunning = int.flags.includes("LOWER_UP");
+				if (name.match("^wlan") && int.address) {
+					wifiDeviceListAdd(
+						name,
+						int.address,
+						isRunning ? (inetAddr ?? ipv6) : null,
+					);
 				}
-
 				if (!isRunning) continue;
-
-				const txBytesMatch = int.match(/TX packets \d+ {2}bytes \d+/);
-				const txBytes = Number.parseInt(
-					(txBytesMatch?.[0] ?? "").split(" ").pop() ?? "0",
-					10,
-				);
+				const txBytes = int.stats64?.tx.bytes ?? 0;
 
 				let tp = 0;
 				if (netif[name]) {
@@ -136,6 +139,8 @@ function updateNetif() {
 				const error = netif[name] ? netif[name].error : 0;
 				newInterfaces[name] = {
 					ip: inetAddr,
+					ipv6,
+					addresses,
 					netmask,
 					txb: txBytes,
 					tp,
@@ -144,11 +149,15 @@ function updateNetif() {
 				};
 
 				// Detect interfaces that are new or with a different address
-				if (!netif[name] || netif[name].ip !== inetAddr) {
+				if (
+					!netif[name] ||
+					netif[name].ip !== inetAddr ||
+					netif[name].ipv6 !== ipv6
+				) {
 					intsChanged = true;
 				}
 			} catch (err) {
-				logger.error(`Error parsing ifconfig: ${err}`);
+				logger.error(`Error parsing interface addresses: ${err}`);
 			}
 		}
 
@@ -262,7 +271,7 @@ export function netIfGetErrorMsg(i: NetworkInterface) {
 }
 
 type NetworkInterfaceResponseMessage = {
-	[key: string]: Pick<NetworkInterface, "ip" | "tp" | "enabled"> & {
+	[key: string]: Pick<NetworkInterface, "ip" | "ipv6" | "tp" | "enabled"> & {
 		error?: string;
 	};
 };
@@ -276,6 +285,7 @@ export function netIfBuildMsg() {
 
 		m[i] = {
 			ip: networkInterface.ip,
+			ipv6: !networkInterface.ip ? networkInterface.ipv6 : undefined,
 			tp: networkInterface.tp,
 			enabled: networkInterface.enabled,
 		};
@@ -303,7 +313,7 @@ export function handleNetif(
 	const int = interfaceState.getInterface(msg.name);
 	if (!int) return;
 
-	if (int.ip !== msg.ip) return;
+	if ((int.ip ?? int.ipv6 ?? "") !== msg.ip) return;
 
 	if (msg.enabled === true || msg.enabled === false) {
 		if (msg.enabled) {

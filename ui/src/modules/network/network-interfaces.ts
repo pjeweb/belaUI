@@ -21,6 +21,7 @@ type NetworkInterface = {
 	error: string;
 	enabled: boolean;
 	ip?: string;
+	ipv6?: string;
 	tp: number;
 };
 
@@ -91,7 +92,7 @@ export function updateNetif(netifs: Record<string, NetworkInterface>) {
 				data.error,
 				data.enabled,
 				i,
-				data.ip || "",
+				data.ip || data.ipv6 || "",
 				`${tpKbps} Kbps`,
 			),
 		);

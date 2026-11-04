@@ -36,6 +36,7 @@ type ModemUserConfig = {
 	network: string;
 	autoconfig?: boolean | undefined;
 	apn: string;
+	ip_family?: "ipv4" | "ipv4v6" | "ipv6";
 	username: string;
 	password: string;
 	device?: string;
@@ -96,7 +97,9 @@ function renderDeviceCard(
                 <input type="checkbox" class="autoconfig-input" id="autoconfig-${cardId}" disabled>
                 <label class="mb-0" for="autoconfig-${cardId}">Automatic APN configuration</label>
               </div>
-              <div class="apn-manual-config">
+              <label for="ip-family-${cardId}">IP family</label>
+ <select id="ip-family-${cardId}" class="form-control ip-family-input"><option value="ipv4">IPv4</option><option value="ipv4v6">IPv4 / IPv6</option><option value="ipv6">IPv6</option></select>
+ <div class="apn-manual-config">
                 <div class="form-group mb-1">
                   <label class="mb-0" for="apn-${cardId}">APN</label>
                   <input type="text" class="form-control apn-input" id="apn-${cardId}">
@@ -199,6 +202,9 @@ function renderDeviceCard(
 			network,
 			autoconfig,
 			apn,
+			ip_family: deviceCard
+				.find(".ip-family-input")
+				.val() as ModemUserConfig["ip_family"],
 			username,
 			password,
 		};
@@ -285,6 +291,9 @@ export function updateModemsState(msg: StatusResponseMessage["modems"]) {
 		}
 
 		if (isFullModemState && modemStatusUpdate.config) {
+			deviceCard
+				.find(".ip-family-input")
+				.val(modemStatusUpdate.config.ip_family ?? "ipv4");
 			deviceCard.find(".apn-input").attr("value", modemStatusUpdate.config.apn);
 			deviceCard
 				.find(".username-input")
