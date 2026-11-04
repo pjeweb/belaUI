@@ -1,3 +1,7 @@
+import {
+	bracketHost,
+	cachedReceiverAddress,
+} from "../../helpers/ip-addresses.ts";
 /*
     belaUI - web UI for the BELABOX project
     Copyright (C) 2020-2022 BELABOX project
@@ -34,6 +38,7 @@
   14 - support for the modem manager
 */
 
+import { URL } from "node:url";
 import WebSocket, { type RawData } from "ws";
 
 import { logger } from "../../helpers/logger.ts";
@@ -44,6 +49,7 @@ import { extractMessage } from "../../helpers/types.ts";
 import { getConfig, saveConfig } from "../config.ts";
 import { dnsCacheResolve, dnsCacheValidate } from "../network/dns.ts";
 import { queueUpdateGw } from "../network/gateways.ts";
+import { getNetworkInterfaces } from "../network/network-interfaces.ts";
 import { setup } from "../setup.ts";
 import { addAuthedSocket } from "../ui/auth.ts";
 import { type StatusResponseMessage, sendInitialStatus } from "../ui/status.ts";
@@ -170,7 +176,9 @@ function remoteClose(conn: WebSocket) {
 	}
 }
 
-async function remoteConnect() {
+export async function remoteConnect(
+	createSocket: (url: URL) => WebSocket = (url) => new WebSocket(url),
+) {
 	if (remoteConnectTimer !== undefined) {
 		clearTimeout(remoteConnectTimer);
 		remoteConnectTimer = undefined;
@@ -180,14 +188,22 @@ async function remoteConnect() {
 	if (!config.remote_key) return;
 
 	let fromCache = false;
+	let freshDns = false;
 	let host = remoteEndpointHost;
 	try {
 		const dnsRes = await dnsCacheResolve(remoteEndpointHost);
 		fromCache = dnsRes.fromCache;
+		freshDns = dnsRes.fresh ?? !fromCache;
 
 		if (fromCache) {
-			const cachedHost =
-				dnsRes.addrs[Math.floor(Math.random() * dnsRes.addrs.length)];
+			// A bonding toggle does not disable remote connectivity.
+			const uplinks = Object.values(getNetworkInterfaces()).filter(
+				(network) => !network.error,
+			);
+			const ipv6Only =
+				!uplinks.some((network) => network.ip) &&
+				uplinks.some((network) => network.ipv6);
+			const cachedHost = cachedReceiverAddress(dnsRes.addrs, ipv6Only);
 			if (!cachedHost) throw "No cached address";
 
 			host = cachedHost;
@@ -200,11 +216,13 @@ async function remoteConnect() {
 
 	logger.info("remote: trying to connect");
 
-	const remoteWsUrl = new URL(`${remoteEndpointProtocol}://${host}`);
+	const remoteWsUrl = new URL(
+		`${remoteEndpointProtocol}://${bracketHost(host)}`,
+	);
 	remoteWsUrl.pathname = remoteEndpointPath;
 
 	remoteStatusHandled = false;
-	remoteWs = new WebSocket(remoteWsUrl);
+	remoteWs = createSocket(remoteWsUrl);
 	markConnectionActive(
 		remoteWs,
 		getms() + remoteConnectTimeout - remoteTimeout,
@@ -213,7 +231,7 @@ async function remoteConnect() {
 		logger.error(`remote error: ${err.message}`);
 	});
 	remoteWs.on("open", function () {
-		if (!fromCache) {
+		if (freshDns) {
 			dnsCacheValidate(remoteEndpointHost);
 		}
 

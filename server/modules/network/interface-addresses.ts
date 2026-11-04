@@ -15,13 +15,17 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { isSameSubnet } from "../../helpers/ip-addresses.ts";
+import { isIP } from "node:net";
+import { isSameSubnet, isUla } from "../../helpers/ip-addresses.ts";
+import { selectIpv6 } from "./interface-discovery.ts";
 
 export const NETIF_ERR_DUPIPV4 = 0x01;
 export const NETIF_ERR_HOTSPOT = 0x02;
 
 type AddressInterface = {
 	ip?: string;
+	ipv6?: string;
+	addresses?: import("./interface-discovery.ts").InterfaceAddress[];
 	netmask?: string;
 	enabled: boolean;
 	error: number;
@@ -30,19 +34,37 @@ type AddressInterface = {
 export function selectSrtlaAddresses(
 	interfaces: Record<string, AddressInterface>,
 	localTarget?: string,
+	receiverHasIpv6 = false,
+	receiverHasIpv4 = true,
 ) {
 	const addresses = new Set<string>();
 	for (const network of Object.values(interfaces)) {
-		if (!network.ip) continue;
+		if (localTarget && isIP(localTarget) === 6) {
+			if (network.error & NETIF_ERR_DUPIPV4) continue;
+			const candidates =
+				network.addresses?.filter((a) =>
+					isSameSubnet(localTarget, a.address, String(a.prefixLength)),
+				) ?? [];
+			const source = selectIpv6(candidates);
+			if (source) addresses.add(source);
+			continue;
+		}
+		const source =
+			(receiverHasIpv4 ? network.ip : undefined) ??
+			(receiverHasIpv6 && network.ipv6 && !isUla(network.ipv6)
+				? network.ipv6
+				: undefined);
+		if (!source) continue;
 		if (localTarget) {
-			// Hotspot interfaces are excluded from WAN bonding, but can reach local receivers.
+			// Preserve IPv4 LAN and hotspot receiver selection.
 			if (
 				!(network.error & NETIF_ERR_DUPIPV4) &&
+				network.ip &&
 				network.netmask &&
 				isSameSubnet(localTarget, network.ip, network.netmask)
 			)
-				addresses.add(network.ip);
-		} else if (network.enabled && !network.error) addresses.add(network.ip);
+				addresses.add(source);
+		} else if (network.enabled && !network.error) addresses.add(source);
 	}
 	return [...addresses];
 }

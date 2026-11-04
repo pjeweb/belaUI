@@ -1,3 +1,4 @@
+import { bracketHost, endpointAddress } from "../../helpers/ip-addresses.ts";
 /*
     belaUI - web UI for the BELABOX project
     Copyright (C) 2020-2022 BELABOX project
@@ -18,6 +19,7 @@
 import { spawn } from "node:child_process";
 import type { EventEmitter } from "node:events";
 import { mkdir, rename, writeFile } from "node:fs/promises";
+import { isIP } from "node:net";
 import { StringDecoder } from "node:string_decoder";
 
 export type ProbeRelays = {
@@ -37,7 +39,7 @@ export type ProbeTargets = {
 };
 export type ProbeResolver = (
 	address: string,
-) => Promise<{ addrs: string[]; fromCache: boolean }>;
+) => Promise<{ addrs: string[]; fromCache: boolean; fresh?: boolean }>;
 
 export async function buildProbeTargets(
 	state: ProbeState,
@@ -59,11 +61,12 @@ export async function buildProbeTargets(
 			if (!server.bcrp_port) continue;
 			const result = await resolve(server.addr);
 			for (const ip of result.addrs) {
-				const address = `${ip}:${server.bcrp_port}`;
+				if (![...sources].some((source) => isIP(source) === isIP(ip))) continue;
+				const address = `${bracketHost(ip)}:${server.bcrp_port}`;
 				targets.relayIds[address] = id;
 				targets.servers += `${address}\n`;
 			}
-			if (!result.fromCache) await validate(server.addr);
+			if (result.fresh ?? !result.fromCache) await validate(server.addr);
 		}
 	}
 	return targets;
@@ -91,12 +94,12 @@ export function parseProbeStats(
 	const lowMtu =
 		stats.mtu &&
 		typeof stats.mtu === "object" &&
-		Object.values(stats.mtu).some(
-			(mtu) =>
+		Object.entries(stats.mtu).some(
+			([source, mtu]) =>
 				typeof mtu === "number" &&
 				Number.isFinite(mtu) &&
 				mtu > 0 &&
-				mtu < 1336,
+				mtu < (isIP(endpointAddress(source)) === 6 ? 1356 : 1336),
 		);
 	return { rtts, lowMtu: Boolean(lowMtu) };
 }

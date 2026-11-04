@@ -24,6 +24,10 @@ export type ConnectionUUID = string;
 export type MacAddress = string;
 
 export type NetworkManagerConnectionModemConfig = {
+	"ipv4.method": string;
+	"ipv6.method": string;
+	"ipv4.may-fail": string;
+	"ipv6.may-fail": string;
 	"gsm.apn": string;
 	"gsm.username": string;
 	"gsm.password": string;

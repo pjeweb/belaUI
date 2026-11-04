@@ -20,6 +20,7 @@ import type { ModemId, NetworkScanResult, NetworkType } from "./mmcli.ts";
 import type { ModemStatus } from "./modem-update-loop.ts";
 
 export type ModemConfig = {
+	ip_family?: import("./ip-family.ts").ModemIpFamily;
 	conn?: string; // e.g. nmUuid
 	autoconfig: boolean; // will only apply if `setup.has_gsm_autoconfig` is true
 	apn: string;

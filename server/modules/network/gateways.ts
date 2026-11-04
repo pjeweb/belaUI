@@ -55,7 +55,7 @@ async function updateGw() {
 	let addrs: Array<string>;
 	let fromCache = false;
 	try {
-		const resolveResult = await dnsCacheResolve(CONNECTIVITY_CHECK_DOMAIN);
+		const resolveResult = await dnsCacheResolve(CONNECTIVITY_CHECK_DOMAIN, "a");
 		addrs = resolveResult.addrs;
 		fromCache = resolveResult.fromCache;
 	} catch (err) {

@@ -20,6 +20,7 @@
 */
 
 import type WebSocket from "ws";
+import { isModemIpFamily } from "./ip-family.ts";
 
 import { logger } from "../../helpers/logger.ts";
 import { extractMessage } from "../../helpers/types.ts";
@@ -43,6 +44,7 @@ type ModemConfigMessage = {
 		roaming?: boolean;
 		autoconfig?: boolean;
 		apn?: unknown;
+		ip_family?: unknown;
 		username?: unknown;
 		password?: unknown;
 		network?: unknown;
@@ -104,6 +106,7 @@ async function handleModemConfig(
 		(msg.roaming !== true && msg.roaming !== false) ||
 		(msg.autoconfig !== true && msg.autoconfig !== false) ||
 		typeof msg.apn !== "string" ||
+		(msg.ip_family !== undefined && !isModemIpFamily(msg.ip_family)) ||
 		typeof msg.username !== "string" ||
 		typeof msg.password !== "string" ||
 		typeof msg.network !== "string" ||
@@ -150,6 +153,7 @@ async function handleModemConfig(
 	const updatedConfig: ModemConfig = {
 		autoconfig: msg.autoconfig,
 		apn: msg.apn,
+		ip_family: isModemIpFamily(msg.ip_family) ? msg.ip_family : "ipv4",
 		username: msg.username,
 		password: msg.password,
 		roaming: msg.roaming,

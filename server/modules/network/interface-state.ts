@@ -1,4 +1,8 @@
+import type { InterfaceAddress } from "./interface-discovery.ts";
+
 export type NetworkInterface = {
+	ipv6?: string;
+	addresses?: InterfaceAddress[];
 	ip?: string;
 	netmask?: string;
 	tp: number;
@@ -44,4 +48,17 @@ export class InterfaceState {
 		current.enabled = enabled;
 		return true;
 	}
+}
+
+export function interfaceSourceChanged(
+	previous: NetworkInterface | undefined,
+	next: NetworkInterface,
+) {
+	return (
+		!previous ||
+		previous.ip !== next.ip ||
+		previous.ipv6 !== next.ipv6 ||
+		JSON.stringify(previous.addresses?.filter((a) => a.family === "inet6")) !==
+			JSON.stringify(next.addresses?.filter((a) => a.family === "inet6"))
+	);
 }

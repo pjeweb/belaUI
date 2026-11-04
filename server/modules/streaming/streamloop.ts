@@ -50,8 +50,8 @@ import {
 	genSrtalIpListForLocalIpAddress,
 	genSrtlaIpList,
 	resolveSrtla,
-	restartSrtla,
 	setSrtlaIpList,
+	shutdownSrtla,
 } from "./srtla.ts";
 import { StreamLifecycle } from "./start-lifecycle.ts";
 import {
@@ -62,17 +62,26 @@ import {
 	validateConfig,
 } from "./streaming.ts";
 
+let shuttingDown = false;
 let removeNetworkListener: (() => void) | undefined;
 async function stopProcesses() {
 	removeNetworkListener?.();
 	removeNetworkListener = undefined;
-	await supervisor.stop();
+	try {
+		await supervisor.stop();
+	} finally {
+		try {
+			await setSrtlaIpList([]);
+		} catch (error) {
+			logger.error(error);
+		}
+	}
 }
 
 function pathsFor(address: string) {
 	return isLocalIp(address)
 		? genSrtalIpListForLocalIpAddress(address)
-		: genSrtlaIpList();
+		: genSrtlaIpList(address);
 }
 
 type StartRequest = { params: unknown; conn?: WebSocket; senderId?: string };
@@ -134,22 +143,24 @@ const lifecycle = new StreamLifecycle<
 			throw error;
 		}
 	},
-	launch(ready) {
+	async launch(ready, signal) {
 		const paths = pathsFor(ready.srtlaAddr);
 		if (!paths.length)
 			throw new Error("Failed to start, no available network connections");
-		setSrtlaIpList(paths);
-		if (setBitrate(ready.config) === null) throw new Error("Invalid bitrate");
-		supervisor.start();
-		removeNetworkListener = onNetworkInterfacesChange(() => {
+		removeNetworkListener = onNetworkInterfacesChange(async () => {
 			try {
 				// An empty list during a handover is valid; retain the listener for recovery.
-				setSrtlaIpList(pathsFor(ready.srtlaAddr));
-				restartSrtla();
+				if (signal.aborted) return;
+				await setSrtlaIpList(pathsFor(ready.srtlaAddr));
 			} catch (error) {
 				logger.error(error);
 			}
 		});
+		await setSrtlaIpList(paths);
+		signal.throwIfAborted();
+		if (setBitrate(ready.config) === null) throw new Error("Invalid bitrate");
+		supervisor.start();
+
 		supervisor.spawnLoop(
 			srtlaSendExec,
 			() => [
@@ -223,8 +234,17 @@ const lifecycle = new StreamLifecycle<
 	},
 });
 
+export async function shutdown() {
+	shuttingDown = true;
+	removeNetworkListener?.();
+	removeNetworkListener = undefined;
+	const stopping = lifecycle.stop();
+	const draining = shutdownSrtla();
+	await Promise.all([stopping, draining]);
+}
+
 export async function start(conn: WebSocket, params: ConfigParameters) {
-	if (getIsStreaming() || isUpdating()) {
+	if (shuttingDown || getIsStreaming() || isUpdating()) {
 		sendStatus(conn);
 		return;
 	}
@@ -257,6 +277,7 @@ export function setAutostart(value: unknown) {
 
 export function initAutostart() {
 	bootAutostart(getConfig().autostart === true, () => {
+		if (shuttingDown) return;
 		void lifecycle
 			.start({ params: { ...getConfig() } }, true)
 			.catch((error) => logger.error(`Autostart failed: ${error}`));

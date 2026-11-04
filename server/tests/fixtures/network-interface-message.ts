@@ -77,4 +77,17 @@ ordinary.enabled = false;
 const errorResponse = JSON.parse(JSON.stringify(netIfBuildMsg()));
 assert.equal(errorResponse.cell0.error, "duplicate IPv4 addr");
 assert.equal(errorResponse.cell0.enabled, false);
+Object.assign(ordinary, {
+	ip: undefined,
+	ipv6: "2001:db8::2",
+	tp: 0,
+	txb: 0,
+	enabled: true,
+	error: 0,
+});
+assert.equal(netIfBuildMsg().cell0?.ipv6, "2001:db8::2");
+handleNetif(conn, { name: "cell0", ip: "2001:db8::2", enabled: false });
+assert.equal(interfaces.cell0?.enabled, false);
+handleNetif(conn, { name: "cell0", ip: "2001:db8::3", enabled: true });
+assert.equal(interfaces.cell0?.enabled, false);
 console.log("network response and toggle checks passed");

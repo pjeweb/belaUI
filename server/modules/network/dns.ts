@@ -21,6 +21,8 @@
 
 import { Resolver } from "node:dns";
 import fs from "node:fs";
+import { isIP } from "node:net";
+import { normalizeIp } from "../../helpers/ip-addresses.ts";
 
 import { logger } from "../../helpers/logger.ts";
 import { writeTextFile } from "../../helpers/text-files.ts";
@@ -52,59 +54,46 @@ type ResolveType = "a" | "aaaa";
   instances for unrelated queries as we call resolver.cancel() on
   timeout, which will make all pending queries time out.
 */
-function resolveP(
+export function resolveP(
 	hostname: string,
 	rrtype: ResolveType | undefined,
 	existingResolver?: Resolver,
+	timeout = DNS_TIMEOUT,
 ) {
 	const resolver = existingResolver ?? new Resolver();
-
 	return new Promise<ResolveResult>((resolve, reject) => {
-		let to: ReturnType<typeof setTimeout> | undefined;
-
-		if (DNS_TIMEOUT) {
-			to = setTimeout(() => {
-				resolver.cancel();
-				reject(`DNS timeout for ${hostname}`);
-			}, DNS_TIMEOUT);
-		}
-
-		let ipv4Res: ResolveResult = null;
-		if (rrtype === undefined || rrtype === "a") {
-			resolver.resolve4(hostname, (err, address) => {
-				ipv4Res = err ? null : address;
-				returnResults();
-			});
-		}
-
-		let ipv6Res: ResolveResult = null;
-		if (rrtype === undefined || rrtype === "aaaa") {
-			resolver.resolve6(hostname, (err, address) => {
-				ipv6Res = err ? null : address;
-				returnResults();
-			});
-		}
-
-		const returnResults = () => {
-			// If querying both for A and AAAA records, wait for the IPv4 result
-			if (rrtype === undefined && ipv4Res === undefined) return;
-
-			let res: ResolveResult = null;
-			if (ipv4Res) {
-				res = ipv4Res;
-			} else if (ipv6Res) {
-				res = ipv6Res;
-			}
-
-			if (res) {
-				if (to) {
-					clearTimeout(to);
-				}
-				resolve(res);
-			} else {
-				reject(`DNS record not found for ${hostname}`);
-			}
+		let pending = rrtype ? 1 : 2;
+		const answers: Partial<Record<ResolveType, string[]>> = {};
+		let finished = false;
+		const finish = () => {
+			if (finished) return;
+			finished = true;
+			clearTimeout(timer);
+			const result = [...(answers.a ?? []), ...(answers.aaaa ?? [])];
+			if (result.length) resolve(result);
+			else reject(new Error(`DNS record not found for ${hostname}`));
 		};
+		const timer = setTimeout(() => {
+			finish();
+			resolver.cancel();
+		}, timeout);
+		const receive = (
+			family: ResolveType,
+			err: NodeJS.ErrnoException | null,
+			addresses: string[],
+		) => {
+			if (finished) return;
+			if (!err) answers[family] = addresses;
+			if (--pending === 0) finish();
+		};
+		if (!rrtype || rrtype === "a")
+			resolver.resolve4(hostname, (err, addresses) =>
+				receive("a", err, addresses),
+			);
+		if (!rrtype || rrtype === "aaaa")
+			resolver.resolve6(hostname, (err, addresses) =>
+				receive("aaaa", err, addresses),
+			);
 	});
 }
 
@@ -117,14 +106,17 @@ let dnsCache: Record<string, DnsCacheEntry> = {};
 const dnsResults: Record<string, ResolveResult> = {};
 try {
 	dnsCache = JSON.parse(fs.readFileSync(DNS_CACHE_FILE, "utf8"));
+	for (const [name, entry] of Object.entries(dnsCache)) {
+		if (!name.startsWith("a:") && !name.startsWith("aaaa:")) {
+			if (entry.results.every((a) => isIP(a) === 4))
+				dnsCache[`a:${name}`] = entry;
+			delete dnsCache[name];
+		}
+	}
 } catch (err) {
 	logger.warn(
 		"Failed to load the persistent DNS cache, starting with an empty cache",
 	);
-}
-
-function isIpv4Addr(val: string) {
-	return val.match(/^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$/) != null;
 }
 
 function isValidResolveType(rrtype: string): rrtype is ResolveType {
@@ -141,16 +133,44 @@ function normalizeResolveType(
 	throw "Invalid rrtype";
 }
 
-export async function dnsCacheResolve(name: string, rrtype_?: string) {
+export async function dnsCacheResolve(
+	input: string,
+	rrtype_?: string,
+	createResolver: () => Resolver = () => new Resolver(),
+): Promise<{ addrs: string[]; fromCache: boolean; fresh?: boolean }> {
+	const name = normalizeIp(input);
 	const rrtype = normalizeResolveType(rrtype_);
-	if (isIpv4Addr(name) && rrtype !== "aaaa") {
+	if (!rrtype && !isIP(name)) {
+		const results = await Promise.allSettled([
+			dnsCacheResolve(name, "a", createResolver),
+			dnsCacheResolve(name, "aaaa", createResolver),
+		]);
+		const good = results.flatMap((r) =>
+			r.status === "fulfilled" ? [r.value] : [],
+		);
+		if (!good.length)
+			throw new Error("DNS query failed and no cached value is available");
+		return {
+			addrs: good.flatMap((r) => r.addrs),
+			fromCache: good.some((r) => r.fromCache),
+			fresh: good.some((r) => r.fresh ?? !r.fromCache),
+		};
+	}
+	const family = isIP(name);
+	if (
+		family &&
+		(!rrtype || (family === 4 ? rrtype === "a" : rrtype === "aaaa"))
+	) {
 		return { addrs: [name], fromCache: false };
 	}
 
+	if (family) throw new Error("Literal address family mismatch");
+	const key = `${rrtype}:${name}`;
+	delete dnsResults[key];
 	let badDns = true;
 
 	// Reuse the Resolver instance for the actual query after a succesful validation
-	const resolver = new Resolver();
+	const resolver = createResolver();
 
 	/* Assume that DNS resolving is broken, unless it returns
      the expected result for a known name */
@@ -168,11 +188,11 @@ export async function dnsCacheResolve(name: string, rrtype_?: string) {
 	}
 
 	if (badDns) {
-		delete dnsResults[name];
+		delete dnsResults[key];
 	} else {
 		try {
 			const res = (await resolveP(name, rrtype, resolver)) ?? [];
-			dnsResults[name] = res;
+			dnsResults[key] = res;
 
 			return { addrs: res, fromCache: false };
 		} catch (err) {
@@ -180,7 +200,7 @@ export async function dnsCacheResolve(name: string, rrtype_?: string) {
 		}
 	}
 
-	const cachedEntry = dnsCache[name];
+	const cachedEntry = dnsCache[key];
 	if (cachedEntry) return { addrs: cachedEntry.results, fromCache: true };
 
 	throw "DNS query failed and no cached value is available";
@@ -214,31 +234,36 @@ function compareArrayElements(a1: Array<SomeValue>, a2: Array<SomeValue>) {
 }
 
 export async function dnsCacheValidate(name: string) {
-	if (!dnsResults[name]) {
-		logger.warn(`DNS: error validating results for ${name}: not found`);
+	for (const family of ["a", "aaaa"])
+		await validateFamily(`${family}:${normalizeIp(name)}`);
+}
+async function validateFamily(key: string) {
+	if (!dnsResults[key]) {
 		return;
 	}
 
-	const cachedEntry = dnsCache[name];
+	const cachedEntry = dnsCache[key];
 
 	if (
 		!cachedEntry ||
-		!compareArrayElements(dnsResults[name], cachedEntry.results)
+		!compareArrayElements(dnsResults[key], cachedEntry.results)
 	) {
 		const writeFile = !(
 			cachedEntry?.ts && Date.now() - cachedEntry.ts < DNS_MIN_AGE
 		);
 
-		dnsCache[name] = cachedEntry ?? {
+		dnsCache[key] = cachedEntry ?? {
 			ts: Date.now(),
 			results: [],
 		};
 
-		dnsCache[name].results = dnsResults[name];
+		dnsCache[key].results = dnsResults[key];
 
 		if (writeFile) {
-			dnsCache[name].ts = Date.now();
+			dnsCache[key].ts = Date.now();
 			await writeTextFile(DNS_CACHE_FILE, JSON.stringify(dnsCache));
 		}
 	}
 }
+
+export { DNS_WELLKNOWN_ADDR };

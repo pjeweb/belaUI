@@ -24,7 +24,7 @@ export type StartHooks<Params, Validated, Ready> = {
 		signal: AbortSignal,
 		automatic: boolean,
 	): Promise<Ready>;
-	launch(ready: Ready): void;
+	launch(ready: Ready, signal: AbortSignal): void | Promise<void>;
 	dispose?(ready: Ready): Promise<void>;
 	stop(): Promise<void>;
 	error(error: unknown, automatic: boolean, params: Params): void;
@@ -80,7 +80,8 @@ export class StreamLifecycle<Params, Validated, Ready> {
 				return false;
 			}
 			this.ready = ready;
-			this.hooks.launch(ready);
+			await this.hooks.launch(ready, signal);
+			if (signal.aborted || this.controller !== controller) return false;
 			this.state = "running";
 			return true;
 		} catch (error) {
@@ -114,7 +115,7 @@ export class StreamLifecycle<Params, Validated, Ready> {
 		this.state = "stopping";
 		const stopping = Promise.resolve()
 			.then(() => this.hooks.stop())
-			.then(async () => {
+			.finally(async () => {
 				const ready = this.ready;
 				this.ready = undefined;
 				try {

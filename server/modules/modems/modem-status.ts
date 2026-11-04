@@ -51,7 +51,13 @@ export type ModemsResponseModemFull = ModemsResponseModemBase & {
 	};
 	config?: Pick<
 		ModemConfig,
-		"apn" | "username" | "password" | "roaming" | "network" | "autoconfig"
+		| "ip_family"
+		| "apn"
+		| "username"
+		| "password"
+		| "roaming"
+		| "network"
+		| "autoconfig"
 	>;
 	no_sim?: true;
 	available_networks?: Record<string, AvailableNetwork>;
@@ -97,6 +103,7 @@ function buildModemMessage(
 		if (modem.config) {
 			fullState.config = {
 				apn: modem.config.apn,
+				ip_family: modem.config.ip_family ?? "ipv4",
 				username: modem.config.username,
 				password: modem.config.password,
 				roaming: modem.config.roaming,

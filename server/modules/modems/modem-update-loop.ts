@@ -25,6 +25,7 @@ import {
 	nmConnGetFields,
 	nmConnect,
 } from "../network/network-manager.ts";
+import { modemIpFields } from "./ip-family.ts";
 
 import { setup } from "../setup.ts";
 
@@ -62,7 +63,7 @@ const modemUpdateInterval = 10_000;
 
 const MODEM_IS_NEW = Symbol("MODEM_IS_NEW");
 
-async function modemGetConfig(
+export async function modemGetConfig(
 	modemInfo: ModemInfo,
 	simInfo: SimInfo,
 ): Promise<ModemConfig | undefined> {
@@ -79,6 +80,7 @@ async function modemGetConfig(
 			conn: ci.uuid,
 			autoconfig: ci.autoconfig === true,
 			apn: ci.apn,
+			ip_family: ci.ip_family ?? "ipv4",
 			username: ci.username,
 			password: ci.password,
 			roaming: ci.roaming,
@@ -92,6 +94,7 @@ async function modemGetConfig(
 		return {
 			autoconfig: ci.autoconfig === true,
 			apn: ci.apn,
+			ip_family: ci.ip_family ?? "ipv4",
 			username: ci.username,
 			password: ci.password,
 			roaming: ci.roaming,
@@ -170,6 +173,7 @@ export function sanitizeModemConfigForNetworkManager(config: ModemConfig) {
 	const autoConfig = Boolean(setup.has_gsm_autoconfig && config.autoconfig);
 
 	const fields: NetworkManagerConnectionModemConfig = {
+		...modemIpFields(config.ip_family),
 		"gsm.apn": config.apn || "", // FIXME: This should be the empty but bun currently drops empty arguments
 		"gsm.username": config.username || "", // FIXME: This should be the empty but bun currently drops empty arguments
 		"gsm.password": config.password || "", // FIXME: This should be the empty but bun currently drops empty arguments
@@ -200,7 +204,6 @@ async function addConnectionForModem(
 		ifname: "", // can be empty for gsm connections, matching by device-id and sim-id // FIXME: This should be the empty but bun currently drops empty arguments
 		autoconnect: "yes",
 		"connection.autoconnect-retries": 2,
-		"ipv6.method": "ignore",
 		"gsm.device-id": modemId,
 		"gsm.sim-id": simId,
 		...sanitizeModemConfigForNetworkManager(config),
