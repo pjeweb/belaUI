@@ -87,7 +87,11 @@ export function endpointAddress(endpoint: string) {
 }
 export function cachedReceiverAddress(addresses: string[], ipv6Only = false) {
 	const preferred = addresses.filter((a) => isIP(a) === (ipv6Only ? 6 : 4));
-	return preferred[Math.floor(Math.random() * preferred.length)];
+	const available =
+		preferred.length || ipv6Only
+			? preferred
+			: addresses.filter((a) => isIP(a) === 6);
+	return available[Math.floor(Math.random() * available.length)];
 }
 
 export function ipv6Prefix(address: string, prefixLength: number) {

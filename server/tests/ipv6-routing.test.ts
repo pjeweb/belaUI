@@ -209,3 +209,25 @@ test("connected policy prefixes are replaced when the interface prefix changes",
 		"20000",
 	]);
 });
+
+test("missing IPv6 FIB tables do not prevent installation after recovery", async () => {
+	let fail = true;
+	const router = new Ipv6Router(async (args) => {
+		if (args[0] === "-j")
+			return JSON.stringify(
+				args.includes("rule") ? [] : [{ dev: "wan0", gateway: "2001:db8::1" }],
+			);
+		if (args.includes("replace") && fail) throw new Error("route timeout");
+		if (args.includes("flush"))
+			throw Object.assign(new Error("ip failed"), {
+				code: 2,
+				stderr: "Error: ipv6: FIB table does not exist.",
+			});
+		if (args.includes("del"))
+			throw Object.assign(new Error("No such process"), { code: 2 });
+		return "";
+	});
+	expect(await router.update([a])).toEqual(new Set());
+	fail = false;
+	expect(await router.update([a])).toEqual(new Set([a.address]));
+});

@@ -2,8 +2,6 @@ import {
 	bracketHost,
 	cachedReceiverAddress,
 } from "../../helpers/ip-addresses.ts";
-import { selectSrtlaAddresses } from "../network/interface-addresses.ts";
-import { getNetworkInterfaces } from "../network/network-interfaces.ts";
 /*
     belaUI - web UI for the BELABOX project
     Copyright (C) 2020-2022 BELABOX project
@@ -40,6 +38,7 @@ import { getNetworkInterfaces } from "../network/network-interfaces.ts";
   14 - support for the modem manager
 */
 
+import { URL } from "node:url";
 import WebSocket, { type RawData } from "ws";
 
 import { logger } from "../../helpers/logger.ts";
@@ -176,7 +175,9 @@ function remoteClose(conn: WebSocket) {
 	}
 }
 
-async function remoteConnect() {
+export async function remoteConnect(
+	createSocket: (url: URL) => WebSocket = (url) => new WebSocket(url),
+) {
 	if (remoteConnectTimer !== undefined) {
 		clearTimeout(remoteConnectTimer);
 		remoteConnectTimer = undefined;
@@ -186,22 +187,15 @@ async function remoteConnect() {
 	if (!config.remote_key) return;
 
 	let fromCache = false;
+	let freshDns = false;
 	let host = remoteEndpointHost;
 	try {
 		const dnsRes = await dnsCacheResolve(remoteEndpointHost);
 		fromCache = dnsRes.fromCache;
+		freshDns = dnsRes.fresh ?? !fromCache;
 
 		if (fromCache) {
-			const sources = selectSrtlaAddresses(
-				getNetworkInterfaces(),
-				undefined,
-				dnsRes.addrs.some((a) => a.includes(":")),
-				dnsRes.addrs.some((a) => !a.includes(":")),
-			);
-			const cachedHost = cachedReceiverAddress(
-				dnsRes.addrs,
-				sources.length > 0 && sources.every((source) => source.includes(":")),
-			);
+			const cachedHost = cachedReceiverAddress(dnsRes.addrs);
 			if (!cachedHost) throw "No cached address";
 
 			host = cachedHost;
@@ -220,7 +214,7 @@ async function remoteConnect() {
 	remoteWsUrl.pathname = remoteEndpointPath;
 
 	remoteStatusHandled = false;
-	remoteWs = new WebSocket(remoteWsUrl);
+	remoteWs = createSocket(remoteWsUrl);
 	markConnectionActive(
 		remoteWs,
 		getms() + remoteConnectTimeout - remoteTimeout,
@@ -229,7 +223,7 @@ async function remoteConnect() {
 		logger.error(`remote error: ${err.message}`);
 	});
 	remoteWs.on("open", function () {
-		if (!fromCache) {
+		if (freshDns) {
 			dnsCacheValidate(remoteEndpointHost);
 		}
 

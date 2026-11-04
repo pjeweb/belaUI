@@ -136,13 +136,14 @@ function normalizeResolveType(
 export async function dnsCacheResolve(
 	input: string,
 	rrtype_?: string,
-): Promise<{ addrs: string[]; fromCache: boolean }> {
+	createResolver: () => Resolver = () => new Resolver(),
+): Promise<{ addrs: string[]; fromCache: boolean; fresh?: boolean }> {
 	const name = normalizeIp(input);
 	const rrtype = normalizeResolveType(rrtype_);
 	if (!rrtype && !isIP(name)) {
 		const results = await Promise.allSettled([
-			dnsCacheResolve(name, "a"),
-			dnsCacheResolve(name, "aaaa"),
+			dnsCacheResolve(name, "a", createResolver),
+			dnsCacheResolve(name, "aaaa", createResolver),
 		]);
 		const good = results.flatMap((r) =>
 			r.status === "fulfilled" ? [r.value] : [],
@@ -152,6 +153,7 @@ export async function dnsCacheResolve(
 		return {
 			addrs: good.flatMap((r) => r.addrs),
 			fromCache: good.some((r) => r.fromCache),
+			fresh: good.some((r) => r.fresh ?? !r.fromCache),
 		};
 	}
 	const family = isIP(name);
@@ -168,7 +170,7 @@ export async function dnsCacheResolve(
 	let badDns = true;
 
 	// Reuse the Resolver instance for the actual query after a succesful validation
-	const resolver = new Resolver();
+	const resolver = createResolver();
 
 	/* Assume that DNS resolving is broken, unless it returns
      the expected result for a known name */
@@ -263,3 +265,5 @@ async function validateFamily(key: string) {
 		}
 	}
 }
+
+export { DNS_WELLKNOWN_ADDR };

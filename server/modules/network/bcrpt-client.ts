@@ -39,7 +39,7 @@ export type ProbeTargets = {
 };
 export type ProbeResolver = (
 	address: string,
-) => Promise<{ addrs: string[]; fromCache: boolean }>;
+) => Promise<{ addrs: string[]; fromCache: boolean; fresh?: boolean }>;
 
 export async function buildProbeTargets(
 	state: ProbeState,
@@ -66,7 +66,7 @@ export async function buildProbeTargets(
 				targets.relayIds[address] = id;
 				targets.servers += `${address}\n`;
 			}
-			if (!result.fromCache) await validate(server.addr);
+			if (result.fresh ?? !result.fromCache) await validate(server.addr);
 		}
 	}
 	return targets;

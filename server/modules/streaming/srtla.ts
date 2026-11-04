@@ -41,10 +41,12 @@ export async function resolveSrtla(input: string) {
 
 	let addrs: string[] | undefined;
 	let fromCache: boolean | undefined;
+	let freshDns = false;
 	try {
 		const res = await dnsCacheResolve(addr);
 		addrs = res.addrs;
 		fromCache = res.fromCache;
+		freshDns = res.fresh ?? !fromCache;
 	} catch (err) {
 		queueUpdateGw();
 		throw new Error(`Failed to resolve SRTLA addr ${addr}`);
@@ -63,7 +65,8 @@ export async function resolveSrtla(input: string) {
 		if (!cachedAddr) throw new Error("No compatible cached receiver address");
 		if (cachedAddr) srtlaAddr = cachedAddr;
 		queueUpdateGw();
-	} else {
+	}
+	if (freshDns) {
 		/* At the moment we don't check that the SRTLA connection was established before
        validating the DNS result. The caching DNS resolver checks for invalid
        results from captive portals, etc, so all results *should* be good already */

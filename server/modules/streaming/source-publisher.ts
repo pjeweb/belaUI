@@ -55,6 +55,7 @@ export class SourcePublisher {
 				try {
 					await this.io.write(list);
 				} catch (error) {
+					this.lastList = undefined;
 					if (applied !== this.revision) {
 						this.io.log(error);
 						continue;

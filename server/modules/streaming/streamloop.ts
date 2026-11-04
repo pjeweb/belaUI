@@ -147,18 +147,20 @@ const lifecycle = new StreamLifecycle<
 		const paths = pathsFor(ready.srtlaAddr);
 		if (!paths.length)
 			throw new Error("Failed to start, no available network connections");
-		await setSrtlaIpList(paths);
-		signal.throwIfAborted();
-		if (setBitrate(ready.config) === null) throw new Error("Invalid bitrate");
-		supervisor.start();
 		removeNetworkListener = onNetworkInterfacesChange(async () => {
 			try {
 				// An empty list during a handover is valid; retain the listener for recovery.
+				if (signal.aborted) return;
 				await setSrtlaIpList(pathsFor(ready.srtlaAddr));
 			} catch (error) {
 				logger.error(error);
 			}
 		});
+		await setSrtlaIpList(paths);
+		signal.throwIfAborted();
+		if (setBitrate(ready.config) === null) throw new Error("Invalid bitrate");
+		supervisor.start();
+
 		supervisor.spawnLoop(
 			srtlaSendExec,
 			() => [

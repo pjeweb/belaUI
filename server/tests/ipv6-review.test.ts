@@ -167,7 +167,7 @@ test("cached receivers prefer A unless every selected source needs IPv6", async 
 	expect(cachedReceiverAddress(["192.0.2.1", "2001:db8::1"], true)).toBe(
 		"2001:db8::1",
 	);
-	expect(cachedReceiverAddress(["2001:db8::1"])).toBeUndefined();
+	expect(cachedReceiverAddress(["2001:db8::1"])).toBe("2001:db8::1");
 });
 
 test("dual-stack uplinks use IPv6 only for an IPv6-only receiver", () => {
@@ -212,4 +212,32 @@ test("dual-stack IPv6 address and prefix changes notify source selection", async
 			addresses: addresses.map((a) => ({ ...a, deprecated: true })),
 		}),
 	).toBe(true);
+});
+
+test("cached AAAA remains available without eligible streaming sources", async () => {
+	const { cachedReceiverAddress } = await import("../helpers/ip-addresses.ts");
+	expect(cachedReceiverAddress(["2001:db8::1"])).toBe("2001:db8::1");
+	expect(cachedReceiverAddress(["2001:db8::1", "192.0.2.1"])).toBe("192.0.2.1");
+});
+
+test("probe targets validate fresh DNS even when another family is cached", async () => {
+	let validated = 0;
+	await buildProbeTargets(
+		{
+			interfaces: { wan: { ip: "192.0.2.2" } },
+			streaming: false,
+			relays: {
+				servers: { relay: { addr: "receiver.invalid", bcrp_port: 9000 } },
+			},
+		},
+		async () => ({
+			addrs: ["192.0.2.1", "2001:db8::1"],
+			fromCache: true,
+			fresh: true,
+		}),
+		() => {
+			validated++;
+		},
+	);
+	expect(validated).toBe(1);
 });

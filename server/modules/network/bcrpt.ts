@@ -41,7 +41,7 @@ const monitor = new BcrptMonitor({
 		relays: getRelays(),
 		streaming: getIsStreaming(),
 	}),
-	resolve: (address) => dnsCacheResolve(address, "a"),
+	resolve: (address) => dnsCacheResolve(address),
 	validateDns: dnsCacheValidate,
 	rttUpdated: updateRelayRtts,
 	log: (message) => logger.info(message),

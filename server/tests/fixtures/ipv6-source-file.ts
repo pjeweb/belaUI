@@ -29,12 +29,22 @@ mock.module("../../modules/network/ipv6-routing.ts", () => ({
 	},
 }));
 let cached = false;
+let cachedAnswers = ["2001:db8::1", "192.0.2.1"];
+let fresh = false;
+let validations = 0;
 mock.module("../../modules/network/dns.ts", () => ({
 	dnsCacheResolve: async (address: string) => ({
-		addrs: cached || !isIP(address) ? ["2001:db8::1", "192.0.2.1"] : [address],
+		addrs: cached
+			? cachedAnswers
+			: !isIP(address)
+				? ["2001:db8::1", "192.0.2.1"]
+				: [address],
+		fresh: cached ? fresh : undefined,
 		fromCache: cached,
 	}),
-	dnsCacheValidate: () => {},
+	dnsCacheValidate: () => {
+		validations++;
+	},
 }));
 mock.module("../../modules/network/gateways.ts", () => ({
 	queueUpdateGw: () => {},
@@ -96,8 +106,13 @@ const interfaces: Record<
 mock.module("../../modules/network/network-interfaces.ts", () => ({
 	getNetworkInterfaces: () => interfaces,
 }));
-const { resolveSrtla, genSrtlaIpList, setSrtlaIpList, shutdownSrtla } =
-	await import("../../modules/streaming/srtla.ts");
+const {
+	resolveSrtla,
+	genSrtlaIpList,
+	genSrtalIpListForLocalIpAddress,
+	setSrtlaIpList,
+	shutdownSrtla,
+} = await import("../../modules/streaming/srtla.ts");
 try {
 	const ipv4 = await resolveSrtla("192.0.2.1");
 	await setSrtlaIpList(genSrtlaIpList(ipv4));
@@ -126,6 +141,26 @@ try {
 	assert(interfaces.dual);
 	interfaces.dual.ip = undefined;
 	assert.equal(await resolveSrtla("receiver.invalid"), "2001:db8::1");
+	const beforeValidation = validations;
+	fresh = true;
+	await resolveSrtla("receiver.invalid");
+	assert.equal(validations, beforeValidation + 1);
+	fresh = false;
+	const localReceiver = `${(0xfd00).toString(16)}::1`;
+	const localSource = `${(0xfd00).toString(16)}::2`;
+	cachedAnswers = [localReceiver];
+	interfaces.dual.addresses?.push(
+		...interfaceAddresses({
+			ifname: "dual",
+			flags: [],
+			addr_info: [
+				{ family: "inet6", local: localSource, prefixlen: 64, scope: "global" },
+			],
+		}),
+	);
+	const local = await resolveSrtla("local.invalid");
+	assert.equal(local, localReceiver);
+	assert.deepEqual(genSrtalIpListForLocalIpAddress(local), [localSource]);
 	await setSrtlaIpList([]);
 	assert.equal(readFileSync(file, "utf8"), "");
 	await shutdownSrtla();

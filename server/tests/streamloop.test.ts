@@ -285,3 +285,31 @@ test("shutdown detaches discovery and blocks new stream producers before cleanup
 	await stopping;
 	expect(active).toBe(false);
 });
+
+test("discovery handover during initial publication queues the current source list", async () => {
+	let entered!: () => void;
+	let release!: () => void;
+	const writing = new Promise<void>((resolve) => {
+		entered = resolve;
+	});
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	let first = true;
+	publish = async () => {
+		if (first) {
+			first = false;
+			entered();
+			await gate;
+		}
+	};
+	const starting = start(conn, {});
+	await writing;
+	const subscribed = listener;
+	wanAddresses = ["192.0.2.3"];
+	await subscribed?.();
+	release();
+	await starting;
+	expect(subscribed).toBeDefined();
+	expect(setAddresses).toHaveBeenLastCalledWith(["192.0.2.3"]);
+});

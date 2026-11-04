@@ -33,7 +33,9 @@ function alreadyRemoved(error: unknown) {
 	return (
 		e?.code === "ENOENT" ||
 		e?.code === "ESRCH" ||
-		/No such (?:file or directory|process)/.test(e?.stderr ?? e?.message ?? "")
+		/No such (?:file or directory|process)|FIB table does not exist/.test(
+			e?.stderr ?? e?.message ?? "",
+		)
 	);
 }
 /** Owns only completed installations; failed partial installations remain cleanup work. */

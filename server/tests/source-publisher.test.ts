@@ -191,3 +191,27 @@ test("shutdown rejects late publications while routing drains", async () => {
 	expect(requests).toEqual([[v6], []]);
 	expect(f.writes).toEqual([""]);
 });
+
+test("a failed write invalidates the previously published list", async () => {
+	let fail = false;
+	let file = "";
+	let writes = 0;
+	const publisher = new SourcePublisher({
+		route: async () => new Set([v6]),
+		write: async (list) => {
+			writes++;
+			file = "";
+			if (fail) throw new Error("disk write failed");
+			file = list;
+		},
+		signal() {},
+		log() {},
+	});
+	await publisher.update([v4]);
+	fail = true;
+	await expect(publisher.update([v6])).rejects.toThrow();
+	fail = false;
+	await publisher.update([v4]);
+	expect(file).toBe(`${v4}\n`);
+	expect(writes).toBe(3);
+});
