@@ -18,7 +18,6 @@
 import { logger } from "../../helpers/logger.ts";
 import { getms } from "../../helpers/time.ts";
 
-import { updateMoblinkRelayInterfaces } from "../network/moblink-relay.ts";
 import {
 	NETIF_ERR_HOTSPOT,
 	getNetworkInterfaces,
@@ -235,8 +234,6 @@ export async function wifiUpdateDevices() {
 		}
 	}
 	logger.debug("Wifi interfaces", wifiInterfacesByMacAddress);
-
-	updateMoblinkRelayInterfaces();
 
 	/* If some wifi adapters were marked unavailable, recheck periodically
      This might happen when the system has just booted up and the adapter

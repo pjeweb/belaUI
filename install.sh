@@ -12,17 +12,16 @@ TEMP_DIR="$HOME/.tmp/belaui"
 TARGET_DIR="/opt/belaUI"
 
 # Check if dependencies are installed
-JQ_INSTALLED=$(jq --version 2>/dev/null) || false
 RSYNC_INSTALLED=$(rsync --version 2>/dev/null) || false
 
 # stop on error
 set -e
 
-if [ -z "$JQ_INSTALLED" ] || [ -z "$RSYNC_INSTALLED" ]; then
+if [ -z "$RSYNC_INSTALLED" ]; then
   echo "Installing missing dependencies"
 
   sudo apt-get update
-  sudo apt-get install -y rsync jq
+  sudo apt-get install -y rsync
 fi
 
 # Clone the repository branch into a temporary directory
@@ -57,20 +56,6 @@ rm -rf "$TEMP_DIR"
 
 # Set ownership to root:root and preserve permissions
 sudo chown -R root:root $TARGET_DIR
-
-# Add moblink_relay_enabled: true to setup.json
-echo "Enabling Moblink Relay. You can disable it in $TARGET_DIR/setup.json"
-sudo cp $TARGET_DIR/setup.json $TARGET_DIR/setup.json.tmp
-
-# Enable moblink relay and set path to moblink-rust-relay
-sudo jq '.moblink_relay_enabled = true | .moblink_relay_bin = "/opt/moblink-rust-relay/target/release/moblink-rust-relay"' $TARGET_DIR/setup.json.tmp | sudo tee $TARGET_DIR/setup.json > /dev/null
-sudo rm $TARGET_DIR/setup.json.tmp
-
-# Install moblink-rust-relay
-cd $TARGET_DIR || exit
-sudo bash ./install-moblink-rust-relay.sh
-
-echo "Moblink relay installed successfully."
 
 # Run the override script
 cd $TARGET_DIR || exit

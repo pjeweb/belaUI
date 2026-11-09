@@ -9,12 +9,7 @@ This fork includes an option to use the [CeraUI](https://github.com/CERALIVE/Cer
 
 ## Moblink support
 
-> [!WARNING]  
-> I will likely remove the integration of moblink in one of the next releases, since [datagutt/moblink-rust](https://github.com/datagutt/moblink-rust) implemented a service that makes the integration mostly obsolete. I would recommend disabling the moblink relay in this fork (setup.json) and installing the service instead: [Install moblink serivce](https://github.com/datagutt/moblink-rust#use-on-belabox).
-
-This fork integrates [datagutt/moblink-rust](https://github.com/datagutt/moblink-rust) in the relay mode, meaning it allows Moblin apps in the network of the encoder (BELABOX) to use the network interfaces of the BELABOX including modems as Moblink relays for SRTLA from Moblin. It does not yet support using Moblinks or Moblin apps to be used as SRTLA relays for the BELABOX!
-
-The implementation defaults to the password `1234` and uses auto-discovery to connect to "Moblin Streamers" in the network. You can change the password in the `setup.json` via SSH. As of now (2025-03-30) there is no UI for Moblink in this belaUI fork, nor CeraUI.
+This fork previously integrated [datagutt/moblink-rust](https://github.com/datagutt/moblink-rust). This integration has been removed in favor of installing the new moblink service directly: [Install moblink on your BELABOX](https://github.com/datagutt/moblink-rust#use-on-belabox).
 
 ## Install the fork on your BELABOX
 
@@ -94,11 +89,6 @@ pair: https://www.digitalocean.com/community/tutorials/how-to-set-up-ssh-keys-on
        `echo "ssh-..." >> /root/.ssh/authorized_keys`).
 - Install rsync (`sudo apt install rsync`)
 - Install an editor (e.g. `sudo apt install nano`)
-- Edit the `/opt/belaUI/setup.json` and add the following line to your existing setup to enable the moblink relay:
-    ```json
-      "moblink_relay_enabled": true
-    ```
-  Make sure to add commas to the end of the lines before and after the new line, if necessary.
 
 ### Set up on host (currently tested on macOS)
 
